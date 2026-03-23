@@ -144,6 +144,11 @@ initDatabase();
 
 let currentCalDate = new Date();
 let currentCallStartTime = 0;
+const KEEP_ALIVE_AUDIO_URL = 'https://img.heliar.top/file/1772516513350_30min-osbvow_2.mp4';
+const BACKGROUND_MESSAGE_CHECK_MS = 30000;
+const backgroundMessageLastRunMap = {};
+const backgroundMessageInFlight = new Set();
+let backgroundMessageTimer = null;
 
 function updateTime() {
     const now = new Date();
@@ -201,6 +206,7 @@ function openApp(appId) {
     if(appId === 'app-memos') renderMemoContacts();
     if(appId === 'app-calendar') renderCalendar();
     if(appId === 'app-couple') renderCoupleSpace();
+    if(appId === 'app-settings') loadSettings();
     if(appId === 'app-tomato') initTomatoApp();
     if(appId === 'app-game') initSuikaApp();
 }
@@ -390,10 +396,21 @@ function runMemoryMaintenance(memoriesMap) {
 const DB = {
     getSettings: () => {
         const saved = MEMORY_CACHE['iphone_settings'];
-        const defaultSettings = { url: 'https://api.openai.com/v1', key: '', model: 'gpt-3.5-turbo', prompt: DEFAULT_SYSTEM_PROMPT, fullscreen: false, temperature: 0.7 };
+        const defaultSettings = {
+            url: 'https://api.openai.com/v1',
+            key: '',
+            model: 'gpt-3.5-turbo',
+            prompt: DEFAULT_SYSTEM_PROMPT,
+            fullscreen: false,
+            temperature: 0.7,
+            keepAliveEnabled: false,
+            notificationPermissionGranted: false
+        };
         if (!saved) return defaultSettings;
         if (!saved.prompt || saved.prompt.length < 50) saved.prompt = DEFAULT_SYSTEM_PROMPT;
         if (saved.temperature === undefined) saved.temperature = 0.7;
+        if (saved.keepAliveEnabled === undefined) saved.keepAliveEnabled = false;
+        if (saved.notificationPermissionGranted === undefined) saved.notificationPermissionGranted = false;
         return saved;
     },
     saveSettings: (data) => {
@@ -831,8 +848,125 @@ function saveBatchStickers() {
     }
 }
 
-function loadSettings() { const s = DB.getSettings(); document.getElementById('api-url').value = s.url; document.getElementById('api-key').value = s.key; document.getElementById('model-name').value = s.model; document.getElementById('system-prompt').value = s.prompt; document.getElementById('fullscreen-toggle').checked = s.fullscreen; const temp = s.temperature || 0.7; document.getElementById('temperature-slider').value = Math.round(temp * 100); document.getElementById('temperature-input').value = temp; applyFullscreen(s.fullscreen); applyTheme(); applyPage2Images(); }
-function saveSettings() { const temperature = parseFloat(document.getElementById('temperature-input').value) || 0.7; DB.saveSettings({ url: document.getElementById('api-url').value, key: document.getElementById('api-key').value, model: document.getElementById('model-name').value, prompt: document.getElementById('system-prompt').value, fullscreen: document.getElementById('fullscreen-toggle').checked, temperature: temperature }); alert('设置已保存'); }
+function normalizeBackgroundIntervalMinutes(value) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return 60;
+    return parsed;
+}
+
+function loadSettings() {
+    const s = DB.getSettings();
+    document.getElementById('api-url').value = s.url;
+    document.getElementById('api-key').value = s.key;
+    document.getElementById('model-name').value = s.model;
+    document.getElementById('system-prompt').value = s.prompt;
+    document.getElementById('fullscreen-toggle').checked = s.fullscreen;
+    document.getElementById('keep-alive-toggle').checked = s.keepAliveEnabled === true;
+    const temp = s.temperature || 0.7;
+    document.getElementById('temperature-slider').value = Math.round(temp * 100);
+    document.getElementById('temperature-input').value = temp;
+    applyFullscreen(s.fullscreen);
+    updateNotificationPermissionStatusUI();
+    applyKeepAliveAudioState();
+    syncBackgroundRuntimeByVisibility();
+    applyTheme();
+    applyPage2Images();
+}
+
+function saveSettings() {
+    const temperature = parseFloat(document.getElementById('temperature-input').value) || 0.7;
+    const current = DB.getSettings();
+    DB.saveSettings({
+        url: document.getElementById('api-url').value,
+        key: document.getElementById('api-key').value,
+        model: document.getElementById('model-name').value,
+        prompt: document.getElementById('system-prompt').value,
+        fullscreen: document.getElementById('fullscreen-toggle').checked,
+        temperature: temperature,
+        keepAliveEnabled: document.getElementById('keep-alive-toggle').checked,
+        notificationPermissionGranted: current.notificationPermissionGranted === true || (typeof Notification !== 'undefined' && Notification.permission === 'granted')
+    });
+    updateNotificationPermissionStatusUI();
+    applyKeepAliveAudioState();
+    syncBackgroundRuntimeByVisibility();
+    alert('设置已保存');
+}
+
+function updateNotificationPermissionStatusUI() {
+    const statusEl = document.getElementById('notification-permission-status');
+    if (!statusEl) return;
+    const granted = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+    statusEl.style.display = granted ? 'block' : 'none';
+}
+
+function applyKeepAliveAudioState() {
+    const audio = document.getElementById('keep-alive-audio');
+    if (!audio) return;
+    audio.src = KEEP_ALIVE_AUDIO_URL;
+    audio.muted = true;
+    audio.volume = 0;
+    const keepAliveEnabled = DB.getSettings().keepAliveEnabled === true;
+    if (!keepAliveEnabled || !document.hidden) {
+        audio.pause();
+        return;
+    }
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+            console.warn('后台保活音频播放被浏览器拦截');
+        });
+    }
+}
+
+function sendBrowserNotification(title, body) {
+    if (typeof Notification === 'undefined') return false;
+    if (Notification.permission !== 'granted') return false;
+    if (!document.hidden) return false;
+    try {
+        new Notification(title, { body });
+        return true;
+    } catch (error) {
+        console.warn('发送通知失败:', error);
+        return false;
+    }
+}
+
+async function requestBrowserNotificationPermission() {
+    if (typeof Notification === 'undefined') {
+        alert('当前浏览器不支持通知功能');
+        return;
+    }
+    const result = await Notification.requestPermission();
+    if (result === 'granted') {
+        const s = DB.getSettings();
+        s.notificationPermissionGranted = true;
+        DB.saveSettings(s);
+        updateNotificationPermissionStatusUI();
+        alert('已成功获取通知权限');
+    } else {
+        updateNotificationPermissionStatusUI();
+        alert('通知权限未开启');
+    }
+}
+
+function testBrowserNotificationStatus() {
+    if (typeof Notification === 'undefined') {
+        alert('当前浏览器不支持通知功能');
+        return;
+    }
+    if (Notification.permission !== 'granted') {
+        alert('请先点击“开启浏览器通知权限”');
+        return;
+    }
+    try {
+        new Notification('测试通知', {
+            body: '这是一条测试通知，看到这条通知说明该功能正常！'
+        });
+    } catch (error) {
+        alert('测试通知发送失败：' + error.message);
+    }
+}
+
 function toggleFullscreen() { const isChecked = document.getElementById('fullscreen-toggle').checked; applyFullscreen(isChecked); const s = DB.getSettings(); s.fullscreen = isChecked; DB.saveSettings(s); }
 function applyFullscreen(isFull) { if (isFull) document.body.classList.add('fullscreen-mode'); else document.body.classList.remove('fullscreen-mode'); }
 async function fetchModels(btn) { const url = document.getElementById('api-url').value.replace(/\/$/, ''); const key = document.getElementById('api-key').value; if (!url || !key) return alert("请先填写 API Base URL 和 API Key"); const originalText = btn.innerText; btn.innerText = "加载中..."; btn.disabled = true; try { const res = await fetch(`${url}/models`, { method: 'GET', headers: { 'Authorization': `Bearer ${key}` } }); if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`); const data = await res.json(); const models = Array.isArray(data) ? data : (data.data || []); const select = document.getElementById('model-select'); select.innerHTML = '<option value="">-- 请选择模型 --</option>'; models.sort((a, b) => (a.id || a).localeCompare(b.id || b)); models.forEach(m => { const modelId = typeof m === 'string' ? m : m.id; const opt = document.createElement('option'); opt.value = modelId; opt.innerText = modelId; select.appendChild(opt); }); select.style.display = 'block'; btn.innerText = "拉取成功"; setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000); } catch (e) { alert("拉取失败: " + e.message); btn.innerText = originalText; btn.disabled = false; } }
@@ -2368,6 +2502,8 @@ function openChatSettings() {
     document.getElementById('auto-summary-toggle').checked = us.autoSummaryEnabled !== false;
     document.getElementById('summary-interval-input').value = us.summaryInterval || 20;
     document.getElementById('context-limit-input').value = us.contextLimit || 100;
+    document.getElementById('bg-msg-toggle').checked = us.enableBackgroundMessages === true;
+    document.getElementById('bg-msg-interval-input').value = normalizeBackgroundIntervalMinutes(us.backgroundMessageIntervalMinutes || 60);
     renderBindWorldBookList();
     const theme = currentChatContact.chatTheme || {};
     document.getElementById('theme-user-color').value = theme.userBubbleColor || '#cce5ff';
@@ -2400,6 +2536,8 @@ function saveChatUserSettings() {
     const autoSummary = document.getElementById('auto-summary-toggle').checked;
     const summaryInterval = parseInt(document.getElementById('summary-interval-input').value) || 20;
     const contextLimit = parseInt(document.getElementById('context-limit-input').value) || 100;
+    const enableBackgroundMessages = document.getElementById('bg-msg-toggle').checked;
+    const backgroundMessageIntervalMinutes = normalizeBackgroundIntervalMinutes(document.getElementById('bg-msg-interval-input').value);
     const boundIds = [...document.querySelectorAll('#bind-wb-list input:checked')].map(cb => cb.value);
     const userBubbleColor = document.getElementById('theme-user-color').value;
     const userBubbleCSS = document.getElementById('theme-user-css').value;
@@ -2419,7 +2557,9 @@ function saveChatUserSettings() {
                 enableHtmlTheater: enableHtmlTheater,
                 autoSummaryEnabled: autoSummary,
                 summaryInterval: summaryInterval,
-                contextLimit: contextLimit
+                contextLimit: contextLimit,
+                enableBackgroundMessages: enableBackgroundMessages,
+                backgroundMessageIntervalMinutes: backgroundMessageIntervalMinutes
             };
             cs[i].boundWorldBooks = boundIds;
             let finalBgValue = bgVal;
@@ -2435,6 +2575,7 @@ function saveChatUserSettings() {
             currentChatContact = cs[i];
             applyChatTheme(currentChatContact);
             renderChatHistory();
+            syncBackgroundRuntimeByVisibility();
         }
     };
     const handleAvatar = () => {
@@ -2880,6 +3021,159 @@ function saveHtmlTheaterMessageForContact(contactId, htmlContent) {
     DB.saveChats(c);
     if (currentChatContact && currentChatContact.id === contactId) renderChatHistory();
 }
+
+function getLastAssistantTimestampForContact(contactId) {
+    const chats = DB.getChats()[contactId] || [];
+    for (let i = chats.length - 1; i >= 0; i--) {
+        if (chats[i].role === 'assistant' && chats[i].timestamp) return Number(chats[i].timestamp) || 0;
+    }
+    return 0;
+}
+
+function mapChatMessageForBackgroundAPI(msg) {
+    if (msg.isRetracted) {
+        if (msg.role === 'user') {
+            return { role: 'system', content: '[系统提示：用户撤回了一条消息。你虽然看不到内容，但知道用户撤回了。请自然回应。]' };
+        }
+        return { role: 'assistant', content: '[已撤回的消息]' };
+    }
+    if (msg.type === 'transfer') return { role: 'user', content: `[用户向你转账 ¥${msg.amount}，备注：${msg.note || '无'}]` };
+    if (msg.type === 'transfer_receipt') return { role: 'assistant', content: msg.status === 'accepted' ? `[我已收款 ¥${msg.amount}]` : `[我已拒收并退还 ¥${msg.amount}]` };
+    if (msg.type === 'couple_invite_req') return { role: 'user', content: '[用户向你发送了“情侣空间”开通邀请]' };
+    if (msg.type === 'couple_invite_accept') return { role: 'assistant', content: '[我已同意你的情侣空间邀请]' };
+    if (msg.type === 'couple_invite_reject') return { role: 'assistant', content: '[我已拒绝你的情侣空间邀请]' };
+    if (msg.type === 'call_end') return { role: 'system', content: msg.content };
+    if (msg.type === 'sticker') return { role: msg.role, content: `[图片表情：${msg.stickerDesc || '表情'}]` };
+    return { role: msg.role, content: msg.content || '' };
+}
+
+function extractBackgroundReplyParts(rawContent) {
+    let content = String(rawContent || '').trim();
+    let thought = null;
+    const thoughtMatch = content.match(/^\[THOUGHTS:(.*?)\]/s);
+    if (thoughtMatch) {
+        thought = thoughtMatch[1].trim();
+        content = content.replace(thoughtMatch[0], '').trim();
+        content = content.replace(/^\|\|\|\s*/, '').trim();
+    }
+    content = content.replace(/\[HTML_THEATER\][\s\S]*?\[\/HTML_THEATER\]/gi, '').trim();
+    const parts = content.split('|||').map(p => p.trim()).filter(Boolean);
+    if (parts.length === 0 && content) parts.push(content);
+    return { thought, parts };
+}
+
+async function triggerBackgroundAutoReplyForContact(contact) {
+    if (!contact || !contact.id) return false;
+    const settings = DB.getSettings();
+    if (!settings.key) return false;
+    const userSettings = contact.userSettings || {};
+    const contextLimit = userSettings.contextLimit || 100;
+    const history = (DB.getChats()[contact.id] || []).slice(-contextLimit);
+    const apiMessages = history.map(mapChatMessageForBackgroundAPI);
+
+    let systemContent = `${settings.prompt}\n\n[角色信息]\n名字：${contact.name}\n人设：${contact.persona}`;
+    if (userSettings.userName || userSettings.userPersona) {
+        systemContent += `\n\n[用户信息]\n名字：${userSettings.userName || 'User'}\n人设：${userSettings.userPersona || ''}`;
+    }
+    systemContent += `\n\n===== 【后台主动发消息模式】 =====
+你正在模拟真实聊天软件的后台来信，请基于最近对话自然地主动发来一条或多条短消息。
+必须使用格式：[THOUGHTS: 心声] ||| 第一条消息 ||| 第二条消息
+要求：语气自然、生活化，不要解释自己是AI，不要输出时间戳。`;
+
+    const messages = [
+        { role: 'system', content: systemContent },
+        ...apiMessages,
+        { role: 'user', content: '[系统提示：用户当前不在前台，请你主动发送一次关心、分享近况或延续话题的消息。]' }
+    ];
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
+    try {
+        const temp = settings.temperature !== undefined ? settings.temperature : 0.7;
+        const response = await fetch(`${settings.url}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
+            body: JSON.stringify({ model: settings.model, messages: messages, temperature: temp }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) return false;
+        const data = await response.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content) return false;
+        const { thought, parts } = extractBackgroundReplyParts(content);
+        if (parts.length === 0) return false;
+
+        const chats = DB.getChats();
+        if (!chats[contact.id]) chats[contact.id] = [];
+        parts.forEach((part, index) => {
+            const item = {
+                role: 'assistant',
+                content: part,
+                timestamp: Date.now() + index,
+                mode: 'online'
+            };
+            if (thought && index === parts.length - 1) item.thought = thought;
+            chats[contact.id].push(item);
+        });
+        DB.saveChats(chats);
+
+        if (currentChatContact && currentChatContact.id === contact.id) {
+            renderChatHistory();
+        }
+        sendBrowserNotification(`${contact.name} 发来新消息`, parts[0].slice(0, 60));
+        return true;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        return false;
+    }
+}
+
+async function runBackgroundMessageCheck() {
+    if (!document.hidden) return;
+    const contacts = DB.getContacts();
+    const now = Date.now();
+    for (const contact of contacts) {
+        const us = contact.userSettings || {};
+        if (us.enableBackgroundMessages !== true) continue;
+        const intervalMinutes = normalizeBackgroundIntervalMinutes(us.backgroundMessageIntervalMinutes || 60);
+        const intervalMs = intervalMinutes * 60 * 1000;
+        const lastRun = backgroundMessageLastRunMap[contact.id] || getLastAssistantTimestampForContact(contact.id) || 0;
+        if (now - lastRun < intervalMs) continue;
+        if (backgroundMessageInFlight.has(contact.id)) continue;
+
+        backgroundMessageInFlight.add(contact.id);
+        try {
+            const ok = await triggerBackgroundAutoReplyForContact(contact);
+            if (ok) backgroundMessageLastRunMap[contact.id] = Date.now();
+        } finally {
+            backgroundMessageInFlight.delete(contact.id);
+        }
+    }
+}
+
+function startBackgroundMessageScheduler() {
+    if (backgroundMessageTimer) return;
+    runBackgroundMessageCheck();
+    backgroundMessageTimer = setInterval(runBackgroundMessageCheck, BACKGROUND_MESSAGE_CHECK_MS);
+}
+
+function stopBackgroundMessageScheduler() {
+    if (!backgroundMessageTimer) return;
+    clearInterval(backgroundMessageTimer);
+    backgroundMessageTimer = null;
+}
+
+function syncBackgroundRuntimeByVisibility() {
+    if (document.hidden) {
+        startBackgroundMessageScheduler();
+    } else {
+        stopBackgroundMessageScheduler();
+    }
+    applyKeepAliveAudioState();
+}
+
+document.addEventListener('visibilitychange', syncBackgroundRuntimeByVisibility);
 
 function handleEnterKey(event) {
     if (event.key === 'Enter') {
