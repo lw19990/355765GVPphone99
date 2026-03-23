@@ -918,15 +918,49 @@ function applyKeepAliveAudioState() {
     }
 }
 
-function sendBrowserNotification(title, body) {
+async function getNotificationRegistration() {
+    if (!('serviceWorker' in navigator)) return null;
+    try {
+        let registration = await navigator.serviceWorker.getRegistration();
+        if (!registration) {
+            registration = await navigator.serviceWorker.register('./sw.js');
+        }
+        return registration || null;
+    } catch (error) {
+        console.warn('获取 Service Worker 失败:', error);
+        return null;
+    }
+}
+
+async function sendBrowserNotification(title, body, options = {}) {
     if (typeof Notification === 'undefined') return false;
     if (Notification.permission !== 'granted') return false;
-    if (!document.hidden) return false;
+    const requireHidden = options.requireHidden !== false;
+    if (requireHidden && !document.hidden) return false;
+
+    const payload = {
+        body: body || '',
+        tag: options.tag || 'vvphone-chat',
+        renotify: false
+    };
+
+    // 优先使用 Service Worker 发送，兼容不允许 new Notification() 的环境。
+    const registration = await getNotificationRegistration();
+    if (registration && typeof registration.showNotification === 'function') {
+        try {
+            await registration.showNotification(title, payload);
+            return true;
+        } catch (error) {
+            console.warn('Service Worker 通知发送失败:', error);
+        }
+    }
+
+    // 降级到页面 Notification（部分浏览器/PWA 场景可能不允许）。
     try {
-        new Notification(title, { body });
+        new Notification(title, payload);
         return true;
     } catch (error) {
-        console.warn('发送通知失败:', error);
+        console.warn('页面 Notification 发送失败:', error);
         return false;
     }
 }
@@ -949,7 +983,7 @@ async function requestBrowserNotificationPermission() {
     }
 }
 
-function testBrowserNotificationStatus() {
+async function testBrowserNotificationStatus() {
     if (typeof Notification === 'undefined') {
         alert('当前浏览器不支持通知功能');
         return;
@@ -958,12 +992,13 @@ function testBrowserNotificationStatus() {
         alert('请先点击“开启浏览器通知权限”');
         return;
     }
-    try {
-        new Notification('测试通知', {
-            body: '这是一条测试通知，看到这条通知说明该功能正常！'
-        });
-    } catch (error) {
-        alert('测试通知发送失败：' + error.message);
+    const sent = await sendBrowserNotification(
+        '测试通知',
+        '这是一条测试通知，看到这条通知说明该功能正常！',
+        { requireHidden: false, tag: 'vvphone-test-notification' }
+    );
+    if (!sent) {
+        alert('测试通知发送失败：当前环境拒绝通知构造，请确认 Service Worker 文件可访问并已激活。');
     }
 }
 
@@ -3121,7 +3156,7 @@ async function triggerBackgroundAutoReplyForContact(contact) {
         if (currentChatContact && currentChatContact.id === contact.id) {
             renderChatHistory();
         }
-        sendBrowserNotification(`${contact.name} 发来新消息`, parts[0].slice(0, 60));
+        void sendBrowserNotification(`${contact.name} 发来新消息`, parts[0].slice(0, 60));
         return true;
     } catch (error) {
         clearTimeout(timeoutId);
