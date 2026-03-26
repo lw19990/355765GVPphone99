@@ -439,7 +439,7 @@ const DB = {
         MEMORY_CACHE['iphone_spy_data'] = data;
         saveToIndexedDB('iphone_spy_data', data);
     },
-    getTheme: () => MEMORY_CACHE['iphone_theme'] || { wallpaperType: 'color', wallpaperValue: '#ffffff', caseColor: '#1a1a1a', widgetImage: '', widgetImages: [], widgetAvatarImage: '', widgetUserTag: '@user', appIcons: {}, customFontUrl: '', fontColor: '#000000' },
+    getTheme: () => MEMORY_CACHE['iphone_theme'] || { wallpaperType: 'color', wallpaperValue: '#f2f4f5', caseColor: '#1a1a1a', widgetImage: '', widgetImages: [], widgetAvatarImage: '', widgetUserTag: '@user', appIcons: {}, customFontUrl: '', fontColor: '#000000' },
     saveTheme: (data) => {
         MEMORY_CACHE['iphone_theme'] = data;
         saveToIndexedDB('iphone_theme', data);
@@ -1291,7 +1291,7 @@ function resetFont() { const theme = DB.getTheme(); theme.customFontUrl = ''; DB
 function saveFontColor() { const color = document.getElementById('theme-font-color').value; const theme = DB.getTheme(); theme.fontColor = color; DB.saveTheme(theme); applyTheme(); alert('字体颜色已更新'); }
 function resetAllThemes() {
     if (!confirm("确定要清空所有美化设置吗？\n这将重置壁纸、图标、字体、颜色以及所有联系人的聊天背景和气泡设置。")) return;
-    const defaultTheme = { wallpaperType: 'color', wallpaperValue: '#ffffff', caseColor: '#1a1a1a', widgetImage: '', widgetImages: [], widgetAvatarImage: '', widgetUserTag: '@user', appIcons: {}, customFontUrl: '', fontColor: '#000000' };
+    const defaultTheme = { wallpaperType: 'color', wallpaperValue: '#f2f4f5', caseColor: '#1a1a1a', widgetImage: '', widgetImages: [], widgetAvatarImage: '', widgetUserTag: '@user', appIcons: {}, customFontUrl: '', fontColor: '#000000' };
     DB.saveTheme(defaultTheme);
     
     let contacts = DB.getContacts();

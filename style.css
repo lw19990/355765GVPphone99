@@ -1,7 +1,7 @@
 /* --- 全局样式 & 重置 --- */
 :root { 
     --case-color: #1a1a1a; 
-    --wallpaper: #fff; 
+    --wallpaper: rgb(242, 244, 245); 
     --global-text-color: #000000; /* 全局字体颜色变量 */
 }
 * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -44,46 +44,53 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
 
 /* 底部固定应用栏 */
 .bottom-app-bar { 
-    width: 90%; 
+    width: 94%; 
     margin: 0 auto 0; 
     background: rgba(255,255,255,0.3); 
     backdrop-filter: blur(20px); 
     -webkit-backdrop-filter: blur(20px); 
     border-radius: 25px; 
-    padding: 10px 20px; 
+    padding: 10px 16px 8px; 
     display: flex; 
     justify-content: space-around; 
-    align-items: center; 
+    align-items: flex-start; 
     box-shadow: 0 8px 20px rgba(0,0,0,0.1);
     border: 1px solid rgba(255,255,255,0.4);
     flex-shrink: 0;
+}
+
+.bottom-app-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
 }
 
 .bottom-app-icon { 
     width: 50px; 
     height: 50px; 
     border-radius: 12px; 
-    background: rgba(255,255,255,0.5); 
+    background: #ffffff; 
     display: flex; 
-    flex-direction: column;
     justify-content: center; 
     align-items: center; 
-    cursor: pointer; 
     transition: transform 0.2s; 
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-.bottom-app-icon:active { 
+.bottom-app-item:active .bottom-app-icon { 
     transform: scale(0.95); 
 }
 
-.bottom-app-icon-emoji {
-    font-size: 24px;
-    margin-bottom: 2px;
+.bottom-app-icon-svg {
+    width: 24px;
+    height: 24px;
+    color: #4a4a4a;
 }
 
 .bottom-app-icon-label {
-    font-size: 9px;
+    font-size: 10px;
     color: var(--global-text-color);
     font-weight: 600;
     text-align: center;
@@ -94,7 +101,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
 .home-widget > #home-widget-img { width: 100%; height: 100%; object-fit: cover; display: none; position: absolute; top: 0; left: 0; z-index: 0; opacity: 1; transition: opacity 0.55s ease; }
 .home-widget.has-image > #home-widget-img { display: block; }
 .home-widget > #home-widget-img.fading { opacity: 0; }
-.home-widget-bg-text { position: relative; z-index: 1; }
+.home-widget-bg-text { position: relative; z-index: 1; color: #4a4a4a; transform: translateX(24px); }
 .home-widget.has-image .home-widget-bg-text { display: none; }
 
 .home-widget-avatar-area {
@@ -106,7 +113,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
     z-index: 2;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
 }
 
@@ -129,10 +136,10 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
 }
 
 .home-widget-avatar-placeholder {
-    color: rgba(255,255,255,0.92);
+    color: #4a4a4a;
     font-size: 11px;
     font-weight: 600;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    text-shadow: none;
     z-index: 1;
 }
 
@@ -168,6 +175,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
     text-shadow: 0 1px 3px rgba(0,0,0,0.4);
     outline: none;
     cursor: text;
+    align-self: center;
 }
 
 .home-widget-user-tag:focus {
@@ -298,9 +306,13 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
     object-fit: cover;
 }
 .app-grid { width: 300px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: center; column-gap: 20px; row-gap: 45px; }
-.app-icon { width: 60px; height: 60px; border-radius: 14px; background: #000; display: flex; justify-content: center; align-items: center; color: #fff; font-size: 24px; cursor: pointer; position: relative; box-shadow: 0 4px 10px rgba(0,0,0,0.1); transition: transform 0.1s; background-size: cover !important; background-position: center !important; flex-shrink: 0; }
+.app-icon { width: 60px; height: 60px; border-radius: 14px; background: #fff; display: flex; justify-content: center; align-items: center; color: #4a4a4a; font-size: 0; cursor: pointer; position: relative; box-shadow: 0 4px 10px rgba(0,0,0,0.1); transition: transform 0.1s; background-size: cover !important; background-position: center !important; flex-shrink: 0; overflow: visible; }
 .app-icon:active { transform: scale(0.95); }
-.app-label { position: absolute; bottom: -25px; width: 140%; left: -20%; text-align: center; color: var(--global-text-color); font-size: 13px; font-weight: 600; text-shadow: 0 1px 3px rgba(255,255,255,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-label { position: absolute; bottom: -25px; width: 140%; left: -20%; text-align: center; color: var(--global-text-color); font-size: 13px; font-weight: 600; text-shadow: 0 1px 3px rgba(255,255,255,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 2; }
+.app-icon svg { width: 26px; height: 26px; color: #4a4a4a; }
+.bottom-app-icon svg { width: 24px; height: 24px; color: #4a4a4a; }
+.app-icon.icon-image { padding: 0; overflow: visible; }
+.app-icon-custom-image { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
 
 /* 第二页布局 */
 .page2-layout { 
@@ -315,7 +327,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
 }
 
 /* 左上角方块小组件 */
-.page2-widget-square { width: 100%; aspect-ratio: 1; background: rgba(255,255,255,0.25); border-radius: 24px; backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.1); display: flex; justify-content: center; align-items: center; overflow: hidden; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 500; }
+.page2-widget-square { width: 100%; aspect-ratio: 1; background: rgba(255,255,255,0.25); border-radius: 24px; backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.1); display: flex; justify-content: center; align-items: center; overflow: hidden; cursor: pointer; color: #4a4a4a; font-size: 12px; font-weight: 500; }
 .page2-widget-square img { width: 100%; height: 100%; object-fit: cover; display: none; }
 .page2-widget-square.has-image img { display: block; }
 .page2-widget-square.has-image span { display: none; }
@@ -361,7 +373,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
 
 .design-circle span {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.8);
+    color: #4a4a4a;
     font-weight: 500;
     text-align: center;
     z-index: 1;
@@ -420,7 +432,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 40
 
 .design-rectangle span {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
+    color: #4a4a4a;
     font-weight: 500;
     z-index: 1;
 }
