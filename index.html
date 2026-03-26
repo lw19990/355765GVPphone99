@@ -56,10 +56,17 @@
                     <div class="home-page" id="home-page-1">
                         <div class="home-widget-container">
                             <div class="home-widget" id="home-widget" onclick="triggerWidgetUpload()">
-                                <span>点击上传图片</span>
+                                <span class="home-widget-bg-text">点击上传图片</span>
                                 <img id="home-widget-img" src="">
+                                <div class="home-widget-avatar-area">
+                                    <div class="home-widget-avatar" id="home-widget-avatar" onclick="triggerWidgetAvatarUpload(event)">
+                                        <span class="home-widget-avatar-placeholder">点击上传</span>
+                                        <img id="home-widget-avatar-img" src="">
+                                    </div>
+                                    <div class="home-widget-user-tag" id="home-widget-user-tag" contenteditable="true" spellcheck="false" onclick="event.stopPropagation()" onblur="saveWidgetUserTag()" onkeydown="handleWidgetUserTagKeydown(event)">@user</div>
+                                </div>
                             </div>
-                            <input type="file" id="widget-file-input" style="display:none" accept="image/*" onchange="uploadWidgetImage(this)">
+                            <input type="file" id="widget-avatar-file-input" style="display:none" accept="image/*" onchange="uploadWidgetAvatar(this)">
                         </div>
 
                         <!-- APP 图标网格 -->
@@ -153,6 +160,72 @@
                 <div class="bottom-app-icon">
                     <div class="bottom-app-icon-emoji">📧</div>
                     <div class="bottom-app-icon-label">电子邮件</div>
+                </div>
+            </div>
+
+            <div id="widget-upload-modal" class="widget-upload-modal" onclick="closeWidgetUploadModal()">
+                <div class="widget-upload-modal-content" onclick="event.stopPropagation()">
+                    <div class="widget-upload-modal-header">
+                        <span class="widget-upload-cancel" onclick="closeWidgetUploadModal()">取消</span>
+                        <span class="widget-upload-title">首页长方形轮播设置</span>
+                        <span class="widget-upload-save" onclick="saveWidgetSlides()">保存</span>
+                    </div>
+                    <div class="widget-upload-tip">最多可上传 5 张图片，支持本地上传或 URL 上传。上传 2 张及以上会自动轮播。</div>
+
+                    <div class="widget-upload-slot">
+                        <div class="widget-upload-slot-title">图片 1</div>
+                        <div class="widget-upload-slot-actions">
+                            <button type="button" class="widget-upload-btn" onclick="triggerWidgetSlotFile(0)">本地上传</button>
+                            <button type="button" class="widget-upload-btn clear" onclick="clearWidgetSlot(0)">清空</button>
+                        </div>
+                        <input type="file" id="widget-slot-file-0" style="display:none" accept="image/*" onchange="uploadWidgetSlotFile(this, 0)">
+                        <input type="text" id="widget-slot-url-0" class="widget-upload-url" placeholder="或输入图片 URL" oninput="setWidgetSlotUrl(0, this.value)">
+                        <div id="widget-slot-preview-0" class="widget-upload-preview"><span>未设置</span></div>
+                    </div>
+
+                    <div class="widget-upload-slot">
+                        <div class="widget-upload-slot-title">图片 2</div>
+                        <div class="widget-upload-slot-actions">
+                            <button type="button" class="widget-upload-btn" onclick="triggerWidgetSlotFile(1)">本地上传</button>
+                            <button type="button" class="widget-upload-btn clear" onclick="clearWidgetSlot(1)">清空</button>
+                        </div>
+                        <input type="file" id="widget-slot-file-1" style="display:none" accept="image/*" onchange="uploadWidgetSlotFile(this, 1)">
+                        <input type="text" id="widget-slot-url-1" class="widget-upload-url" placeholder="或输入图片 URL" oninput="setWidgetSlotUrl(1, this.value)">
+                        <div id="widget-slot-preview-1" class="widget-upload-preview"><span>未设置</span></div>
+                    </div>
+
+                    <div class="widget-upload-slot">
+                        <div class="widget-upload-slot-title">图片 3</div>
+                        <div class="widget-upload-slot-actions">
+                            <button type="button" class="widget-upload-btn" onclick="triggerWidgetSlotFile(2)">本地上传</button>
+                            <button type="button" class="widget-upload-btn clear" onclick="clearWidgetSlot(2)">清空</button>
+                        </div>
+                        <input type="file" id="widget-slot-file-2" style="display:none" accept="image/*" onchange="uploadWidgetSlotFile(this, 2)">
+                        <input type="text" id="widget-slot-url-2" class="widget-upload-url" placeholder="或输入图片 URL" oninput="setWidgetSlotUrl(2, this.value)">
+                        <div id="widget-slot-preview-2" class="widget-upload-preview"><span>未设置</span></div>
+                    </div>
+
+                    <div class="widget-upload-slot">
+                        <div class="widget-upload-slot-title">图片 4</div>
+                        <div class="widget-upload-slot-actions">
+                            <button type="button" class="widget-upload-btn" onclick="triggerWidgetSlotFile(3)">本地上传</button>
+                            <button type="button" class="widget-upload-btn clear" onclick="clearWidgetSlot(3)">清空</button>
+                        </div>
+                        <input type="file" id="widget-slot-file-3" style="display:none" accept="image/*" onchange="uploadWidgetSlotFile(this, 3)">
+                        <input type="text" id="widget-slot-url-3" class="widget-upload-url" placeholder="或输入图片 URL" oninput="setWidgetSlotUrl(3, this.value)">
+                        <div id="widget-slot-preview-3" class="widget-upload-preview"><span>未设置</span></div>
+                    </div>
+
+                    <div class="widget-upload-slot">
+                        <div class="widget-upload-slot-title">图片 5</div>
+                        <div class="widget-upload-slot-actions">
+                            <button type="button" class="widget-upload-btn" onclick="triggerWidgetSlotFile(4)">本地上传</button>
+                            <button type="button" class="widget-upload-btn clear" onclick="clearWidgetSlot(4)">清空</button>
+                        </div>
+                        <input type="file" id="widget-slot-file-4" style="display:none" accept="image/*" onchange="uploadWidgetSlotFile(this, 4)">
+                        <input type="text" id="widget-slot-url-4" class="widget-upload-url" placeholder="或输入图片 URL" oninput="setWidgetSlotUrl(4, this.value)">
+                        <div id="widget-slot-preview-4" class="widget-upload-preview"><span>未设置</span></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -608,7 +681,7 @@
                 <div class="call-controls-container">
                     <!-- 通话界面的输入框 -->
                     <div class="call-input-container">
-                        <button class="icon-btn trigger-ai-btn" onclick="triggerAIResponse()">✨</button>
+                        <button class="icon-btn trigger-ai-btn" onclick="triggerAIResponse()">☆</button>
                         <input type="text" class="chat-input" id="call-message-input" placeholder="通话中..." onkeydown="handleEnterKey(event)">
                         <button class="icon-btn send-btn" onclick="sendMessage()">➤</button>
                     </div>
@@ -654,22 +727,11 @@
             </div>
 
             <div class="chat-tools-bar" id="chat-tools-bar">
-                <button class="tool-btn" onclick="toggleStickerPanel()">
-                    <span class="tool-icon">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <circle cx="12" cy="12" r="8"></circle>
-                            <circle cx="9" cy="10" r="0.9"></circle>
-                            <circle cx="15" cy="10" r="0.9"></circle>
-                            <path d="M8.5 14c.9 1.2 2.2 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path>
-                        </svg>
-                    </span>
-                    <span class="tool-label">表情包</span>
-                </button>
                 <button class="tool-btn" onclick="regenerateLastResponse()">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M20 7v5h-5"></path>
-                            <path d="M20 12a8 8 0 1 1-2.2-5.5L20 7"></path>
+                            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                            <path d="M21 3v5h-5"></path>
                         </svg>
                     </span>
                     <span class="tool-label">刷新</span>
@@ -677,8 +739,8 @@
                 <button class="tool-btn" onclick="continueChat()">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M5.5 7.5L11 12l-5.5 4.5z"></path>
-                            <path d="M13 7.5l5.5 4.5L13 16.5z"></path>
+                            <path d="m6 17 5-5-5-5"></path>
+                            <path d="m13 17 5-5-5-5"></path>
                         </svg>
                     </span>
                     <span class="tool-label">继续</span>
@@ -686,10 +748,11 @@
                 <button class="tool-btn" onclick="openTransferModal()">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <rect x="4.5" y="7" width="15" height="10" rx="2"></rect>
-                            <path d="M12 9.8v4.4"></path>
-                            <path d="M9.5 11h5"></path>
-                            <path d="M9.5 13h5"></path>
+                            <path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17"></path>
+                            <path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"></path>
+                            <path d="m2 16 6 6"></path>
+                            <circle cx="16" cy="9" r="2.9"></circle>
+                            <circle cx="6" cy="5" r="3"></circle>
                         </svg>
                     </span>
                     <span class="tool-label">转账</span>
@@ -697,9 +760,11 @@
                 <button class="tool-btn" onclick="openOfflineMode()">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M8 8a6 6 0 0 1 8 8"></path>
-                            <path d="M5 5a10 10 0 0 1 14 14"></path>
-                            <line x1="5" y1="19" x2="19" y2="5"></line>
+                            <path d="M11 20H2"></path>
+                            <path d="M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z"></path>
+                            <path d="M11 4H8a2 2 0 0 0-2 2v14"></path>
+                            <path d="M14 12h.01"></path>
+                            <path d="M22 20h-3"></path>
                         </svg>
                     </span>
                     <span class="tool-label">线下模式</span>
@@ -707,10 +772,9 @@
                 <button class="tool-btn tool-placeholder-btn" type="button">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <rect x="5" y="6.5" width="14" height="11" rx="1.8"></rect>
-                            <path d="M8.5 6.5V5h7v1.5"></path>
-                            <path d="M9 11h6"></path>
-                            <path d="M10.2 13h3.6"></path>
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path>
+                            <path d="M12 18V6"></path>
                         </svg>
                     </span>
                     <span class="tool-label">红包</span>
@@ -718,8 +782,9 @@
                 <button class="tool-btn tool-placeholder-btn" type="button">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M14 8v7.5a2.5 2.5 0 1 1-1-2"></path>
-                            <path d="M14 8l5-1.5v7a2.5 2.5 0 1 1-1-2"></path>
+                            <path d="M12 19v3"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <rect x="9" y="2" width="6" height="13" rx="3"></rect>
                         </svg>
                     </span>
                     <span class="tool-label">语音</span>
@@ -727,12 +792,23 @@
                 <button class="tool-btn tool-placeholder-btn" type="button">
                     <span class="tool-icon">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <rect x="5" y="6.5" width="14" height="11" rx="2"></rect>
-                            <path d="M7.5 15l3.2-3.5 2.5 2.6 2.3-2.1 1.5 3"></path>
-                            <circle cx="9" cy="9.5" r="1"></circle>
+                            <path d="M16 5h6"></path>
+                            <path d="M19 2v6"></path>
+                            <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                            <circle cx="9" cy="9" r="2"></circle>
                         </svg>
                     </span>
                     <span class="tool-label">图片</span>
+                </button>
+                <button class="tool-btn tool-placeholder-btn" type="button">
+                    <span class="tool-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                            <path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"></path>
+                        </svg>
+                    </span>
+                    <span class="tool-label">视频</span>
                 </button>
             </div>
 
@@ -743,9 +819,19 @@
 
             <div class="chat-input-area">
                 <button class="icon-btn tools-toggle-btn" id="toggle-tools-btn" onclick="toggleChatToolsBar()" aria-label="展开工具栏">+</button>
-                <input type="text" class="chat-input" id="message-input" placeholder="输入消息..." onkeydown="handleEnterKey(event)">
+                <div class="chat-input-wrapper">
+                    <input type="text" class="chat-input" id="message-input" placeholder="输入消息..." onkeydown="handleEnterKey(event)">
+                    <button class="input-emoji-btn" onclick="toggleStickerPanel()" aria-label="打开表情包">☺</button>
+                </div>
                 <button class="icon-btn send-btn" onclick="sendMessage()">➤</button>
-                <button class="icon-btn trigger-ai-btn" onclick="triggerAIResponse()">✨</button>
+                <button class="icon-btn trigger-ai-btn" onclick="triggerAIResponse()" aria-label="呼叫AI">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path>
+                        <path d="M20 2v4"></path>
+                        <path d="M22 4h-4"></path>
+                        <circle cx="4" cy="20" r="2"></circle>
+                    </svg>
+                </button>
             </div>
 
             <div class="ctx-overlay" id="ctx-overlay" onclick="closeAllOverlays()"></div>

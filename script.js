@@ -242,6 +242,8 @@ function closeAllOverlays() {
     document.getElementById('calendar-event-modal').classList.remove('active');
     document.getElementById('offline-edit-modal').classList.remove('active');
     document.getElementById('spy-diary-edit-modal').classList.remove('active');
+    const widgetModal = document.getElementById('widget-upload-modal');
+    if (widgetModal) widgetModal.classList.remove('active');
 }
 
 const SHORT_TERM_MEMORY_TTL_MS = 72 * 60 * 60 * 1000;
@@ -437,7 +439,7 @@ const DB = {
         MEMORY_CACHE['iphone_spy_data'] = data;
         saveToIndexedDB('iphone_spy_data', data);
     },
-    getTheme: () => MEMORY_CACHE['iphone_theme'] || { wallpaperType: 'color', wallpaperValue: '#ffffff', caseColor: '#1a1a1a', widgetImage: '', appIcons: {}, customFontUrl: '', fontColor: '#000000' },
+    getTheme: () => MEMORY_CACHE['iphone_theme'] || { wallpaperType: 'color', wallpaperValue: '#ffffff', caseColor: '#1a1a1a', widgetImage: '', widgetImages: [], widgetAvatarImage: '', widgetUserTag: '@user', appIcons: {}, customFontUrl: '', fontColor: '#000000' },
     saveTheme: (data) => {
         MEMORY_CACHE['iphone_theme'] = data;
         saveToIndexedDB('iphone_theme', data);
@@ -1184,19 +1186,112 @@ function openSelectiveImport(data) {
         }
     }
 }
+var widgetSlideTimer = null;
+var widgetSlideImages = [];
+var widgetSlideIndex = 0;
+var widgetModalDraftImages = Array(5).fill('');
 loadSettings();
 let currentThemeType = 'color';
+
+function normalizeWidgetSlides(theme) {
+    const list = Array.isArray(theme.widgetImages) ? theme.widgetImages : (theme.widgetImage ? [theme.widgetImage] : []);
+    return list.map(v => String(v || '').trim()).filter(Boolean).slice(0, 5);
+}
+
+function stopWidgetSlideshow() {
+    if (widgetSlideTimer) {
+        clearInterval(widgetSlideTimer);
+        widgetSlideTimer = null;
+    }
+}
+
+function setWidgetSlideByIndex(index, useFade = false) {
+    const widgetImg = document.getElementById('home-widget-img');
+    if (!widgetImg || widgetSlideImages.length === 0) return;
+    const safeIndex = ((index % widgetSlideImages.length) + widgetSlideImages.length) % widgetSlideImages.length;
+    widgetSlideIndex = safeIndex;
+    const nextSrc = widgetSlideImages[safeIndex];
+    if (!useFade) {
+        widgetImg.src = nextSrc;
+        widgetImg.classList.remove('fading');
+        return;
+    }
+    widgetImg.classList.add('fading');
+    setTimeout(() => {
+        widgetImg.src = nextSrc;
+        widgetImg.classList.remove('fading');
+    }, 280);
+}
+
+function startWidgetSlideshowIfNeeded() {
+    stopWidgetSlideshow();
+    if (widgetSlideImages.length < 2) return;
+    widgetSlideTimer = setInterval(() => {
+        setWidgetSlideByIndex(widgetSlideIndex + 1, true);
+    }, 5000);
+}
 function renderThemeSettings() { const theme = DB.getTheme(); currentThemeType = theme.wallpaperType; switchThemeType(currentThemeType); if (theme.wallpaperType === 'color') document.getElementById('theme-wallpaper-color').value = theme.wallpaperValue; document.getElementById('theme-case-color').value = theme.caseColor; document.getElementById('theme-font-url').value = theme.customFontUrl || ''; document.getElementById('theme-font-color').value = theme.fontColor || '#000000'; }
 function switchThemeType(type) { currentThemeType = type; document.getElementById('theme-type-color').classList.toggle('active', type === 'color'); document.getElementById('theme-type-image').classList.toggle('active', type === 'image'); document.getElementById('theme-input-color').style.display = type === 'color' ? 'block' : 'none'; document.getElementById('theme-input-image').style.display = type === 'image' ? 'block' : 'none'; }
 function saveTheme() { const caseColor = document.getElementById('theme-case-color').value; const currentTheme = DB.getTheme(); const processSave = (val) => { currentTheme.wallpaperType = currentThemeType; currentTheme.wallpaperValue = val; currentTheme.caseColor = caseColor; DB.saveTheme(currentTheme); applyTheme(); alert('主题已应用'); }; if (currentThemeType === 'color') { processSave(document.getElementById('theme-wallpaper-color').value); } else { const urlInput = document.getElementById('theme-wallpaper-url').value; const fileInput = document.getElementById('theme-wallpaper-image'); if (urlInput) processSave(urlInput); else if (fileInput.files && fileInput.files[0]) { const r = new FileReader(); r.onload = (e) => processSave(e.target.result); r.readAsDataURL(fileInput.files[0]); } else { if (currentTheme.wallpaperType === 'image') processSave(currentTheme.wallpaperValue); else alert('请选择图片'); } } }
 function getAppLabelName(appId) { const names = { 'icon-app-vk': 'Vkontakte', 'icon-app-contacts': '通讯录', 'icon-app-memos': '备忘录', 'icon-app-calendar': '日历', 'icon-app-worldbook': '世界书', 'icon-app-spy-list': '查岗', 'icon-app-theme': '美化', 'icon-app-settings': '设置', 'icon-app-couple': '情侣空间', 'icon-app-tomato': '番茄钟', 'icon-app-music': '音乐', 'icon-app-forum': '论坛', 'icon-app-shopping': '购物', 'icon-app-game': '游戏', 'icon-app-accounting': '记账', 'icon-app-wallet': '钱包', 'spy-icon-browser': '浏览器', 'spy-icon-diary': '日记' }; return names[appId] || 'App'; }
-function applyTheme() { const theme = DB.getTheme(); document.documentElement.style.setProperty('--case-color', theme.caseColor); document.documentElement.style.setProperty('--wallpaper', theme.wallpaperType === 'color' ? theme.wallpaperValue : `url(${theme.wallpaperValue})`); document.documentElement.style.setProperty('--global-text-color', theme.fontColor || '#000000'); const widget = document.getElementById('home-widget'); const widgetImg = document.getElementById('home-widget-img'); if (theme.widgetImage) { widgetImg.src = theme.widgetImage; widget.classList.add('has-image'); } else { widget.classList.remove('has-image'); } if (theme.appIcons) { for (const [id, iconUrl] of Object.entries(theme.appIcons)) { const el = document.getElementById(id); if (el && iconUrl) { el.style.background = 'none'; el.style.backgroundColor = 'transparent'; el.style.backgroundImage = `url(${iconUrl})`; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center'; el.innerHTML = `<div class="app-label">${getAppLabelName(id)}</div>`; } } } const fontStyle = document.getElementById('custom-font-style'); if (theme.customFontUrl) { fontStyle.innerHTML = ` @font-face { font-family: 'UserCustomFont'; src: url('${theme.customFontUrl}'); font-display: swap; } body, input, textarea, button, select { font-family: 'UserCustomFont', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important; } `; } else { fontStyle.innerHTML = ''; } }
+function applyTheme() {
+    const theme = DB.getTheme();
+    document.documentElement.style.setProperty('--case-color', theme.caseColor);
+    document.documentElement.style.setProperty('--wallpaper', theme.wallpaperType === 'color' ? theme.wallpaperValue : `url(${theme.wallpaperValue})`);
+    document.documentElement.style.setProperty('--global-text-color', theme.fontColor || '#000000');
+
+    const widget = document.getElementById('home-widget');
+    widgetSlideImages = normalizeWidgetSlides(theme);
+    if (widgetSlideImages.length > 0) {
+        widget.classList.add('has-image');
+        setWidgetSlideByIndex(0, false);
+        startWidgetSlideshowIfNeeded();
+    } else {
+        widget.classList.remove('has-image');
+        stopWidgetSlideshow();
+    }
+
+    const avatar = document.getElementById('home-widget-avatar');
+    const avatarImg = document.getElementById('home-widget-avatar-img');
+    if (theme.widgetAvatarImage) {
+        avatarImg.src = theme.widgetAvatarImage;
+        avatar.classList.add('has-image');
+    } else {
+        avatar.classList.remove('has-image');
+    }
+
+    const widgetUserTag = document.getElementById('home-widget-user-tag');
+    if (widgetUserTag) {
+        widgetUserTag.textContent = (theme.widgetUserTag || '@user').trim() || '@user';
+    }
+
+    if (theme.appIcons) {
+        for (const [id, iconUrl] of Object.entries(theme.appIcons)) {
+            const el = document.getElementById(id);
+            if (el && iconUrl) {
+                el.style.background = 'none';
+                el.style.backgroundColor = 'transparent';
+                el.style.backgroundImage = `url(${iconUrl})`;
+                el.style.backgroundSize = 'cover';
+                el.style.backgroundPosition = 'center';
+                el.innerHTML = `<div class="app-label">${getAppLabelName(id)}</div>`;
+            }
+        }
+    }
+
+    const fontStyle = document.getElementById('custom-font-style');
+    if (theme.customFontUrl) {
+        fontStyle.innerHTML = ` @font-face { font-family: 'UserCustomFont'; src: url('${theme.customFontUrl}'); font-display: swap; } body, input, textarea, button, select { font-family: 'UserCustomFont', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important; } `;
+    } else {
+        fontStyle.innerHTML = '';
+    }
+}
 function saveFont() { const url = document.getElementById('theme-font-url').value; const theme = DB.getTheme(); theme.customFontUrl = url; DB.saveTheme(theme); applyTheme(); alert('字体已更新'); }
 function resetFont() { const theme = DB.getTheme(); theme.customFontUrl = ''; DB.saveTheme(theme); applyTheme(); document.getElementById('theme-font-url').value = ''; alert('已恢复默认字体'); }
 function saveFontColor() { const color = document.getElementById('theme-font-color').value; const theme = DB.getTheme(); theme.fontColor = color; DB.saveTheme(theme); applyTheme(); alert('字体颜色已更新'); }
 function resetAllThemes() {
     if (!confirm("确定要清空所有美化设置吗？\n这将重置壁纸、图标、字体、颜色以及所有联系人的聊天背景和气泡设置。")) return;
-    const defaultTheme = { wallpaperType: 'color', wallpaperValue: '#ffffff', caseColor: '#1a1a1a', widgetImage: '', appIcons: {}, customFontUrl: '', fontColor: '#000000' };
+    const defaultTheme = { wallpaperType: 'color', wallpaperValue: '#ffffff', caseColor: '#1a1a1a', widgetImage: '', widgetImages: [], widgetAvatarImage: '', widgetUserTag: '@user', appIcons: {}, customFontUrl: '', fontColor: '#000000' };
     DB.saveTheme(defaultTheme);
     
     let contacts = DB.getContacts();
@@ -1210,9 +1305,78 @@ function resetAllThemes() {
     renderThemeSettings();
     alert("所有美化已重置！");
 }
-function triggerWidgetUpload() { const url = prompt("请输入图片 URL (或点击取消以上传文件)"); if (url) saveWidgetImage(url); else document.getElementById('widget-file-input').click(); }
-function uploadWidgetImage(input) { if (input.files && input.files[0]) { const reader = new FileReader(); reader.onload = (e) => saveWidgetImage(e.target.result); reader.readAsDataURL(input.files[0]); } }
-function saveWidgetImage(imgData) { const theme = DB.getTheme(); theme.widgetImage = imgData; DB.saveTheme(theme); applyTheme(); }
+function triggerWidgetUpload() { openWidgetUploadModal(); }
+function openWidgetUploadModal() {
+    const theme = DB.getTheme();
+    const slides = normalizeWidgetSlides(theme);
+    widgetModalDraftImages = Array(5).fill('').map((_, idx) => slides[idx] || '');
+
+    for (let i = 0; i < 5; i++) {
+        const urlInput = document.getElementById(`widget-slot-url-${i}`);
+        const fileInput = document.getElementById(`widget-slot-file-${i}`);
+        if (urlInput) urlInput.value = '';
+        if (fileInput) fileInput.value = '';
+        renderWidgetSlotPreview(i);
+    }
+
+    document.getElementById('widget-upload-modal').classList.add('active');
+}
+function closeWidgetUploadModal() {
+    const modal = document.getElementById('widget-upload-modal');
+    if (modal) modal.classList.remove('active');
+}
+function triggerWidgetSlotFile(index) {
+    const input = document.getElementById(`widget-slot-file-${index}`);
+    if (input) input.click();
+}
+function uploadWidgetSlotFile(input, index) {
+    if (!(input.files && input.files[0])) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        widgetModalDraftImages[index] = e.target.result;
+        const urlInput = document.getElementById(`widget-slot-url-${index}`);
+        if (urlInput) urlInput.value = '';
+        renderWidgetSlotPreview(index);
+    };
+    reader.readAsDataURL(input.files[0]);
+}
+function setWidgetSlotUrl(index, value) {
+    const url = String(value || '').trim();
+    widgetModalDraftImages[index] = url;
+    renderWidgetSlotPreview(index);
+}
+function clearWidgetSlot(index) {
+    widgetModalDraftImages[index] = '';
+    const urlInput = document.getElementById(`widget-slot-url-${index}`);
+    const fileInput = document.getElementById(`widget-slot-file-${index}`);
+    if (urlInput) urlInput.value = '';
+    if (fileInput) fileInput.value = '';
+    renderWidgetSlotPreview(index);
+}
+function renderWidgetSlotPreview(index) {
+    const preview = document.getElementById(`widget-slot-preview-${index}`);
+    if (!preview) return;
+    const imgData = widgetModalDraftImages[index];
+    if (imgData) {
+        preview.innerHTML = `<img src="${imgData}" alt="预览图 ${index + 1}">`;
+    } else {
+        preview.innerHTML = '<span>未设置</span>';
+    }
+}
+function saveWidgetSlides() {
+    const slides = widgetModalDraftImages.map(v => String(v || '').trim()).filter(Boolean).slice(0, 5);
+    const theme = DB.getTheme();
+    theme.widgetImages = slides;
+    theme.widgetImage = slides[0] || '';
+    DB.saveTheme(theme);
+    applyTheme();
+    closeWidgetUploadModal();
+}
+function triggerWidgetAvatarUpload(event) { if (event) event.stopPropagation(); document.getElementById('widget-avatar-file-input').click(); }
+function uploadWidgetAvatar(input) { if (input.files && input.files[0]) { const reader = new FileReader(); reader.onload = (e) => saveWidgetAvatarImage(e.target.result); reader.readAsDataURL(input.files[0]); } }
+function saveWidgetAvatarImage(imgData) { const theme = DB.getTheme(); theme.widgetAvatarImage = imgData; DB.saveTheme(theme); applyTheme(); }
+function saveWidgetUserTag() { const tagEl = document.getElementById('home-widget-user-tag'); if (!tagEl) return; const cleanTag = (tagEl.textContent || '').replace(/\s+/g, ' ').trim() || '@user'; tagEl.textContent = cleanTag; const theme = DB.getTheme(); theme.widgetUserTag = cleanTag; DB.saveTheme(theme); }
+function handleWidgetUserTagKeydown(event) { if (event.key === 'Enter') { event.preventDefault(); event.target.blur(); } event.stopPropagation(); }
 
 function saveAppIcon() { 
     const appId = document.getElementById('theme-app-select').value; 
