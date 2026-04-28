@@ -3239,6 +3239,8 @@ function saveSpyDiaryEdit() {
 async function callSpyAPI(type) { 
     const s = DB.getSettings(); 
     if (!s.key) return alert('请配置 API Key'); 
+    if (!s.url || !s.model) return alert('请先配置 API Base URL 和模型');
+    if (!currentSpyContact) return alert('请先在查岗中选择角色');
     
     const chatHistory = (DB.getChats()[currentSpyContact.id] || []).slice(-20).map(m => `${m.role === 'user' ? 'User' : 'Me'}: ${m.content}`).join('\n');
     
@@ -3284,35 +3286,66 @@ async function callSpyAPI(type) {
 
     try { 
         const temp = s.temperature !== undefined ? s.temperature : 0.7;
-        const res = await fetch(`${s.url}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.key}` }, body: JSON.stringify({ model: s.model, messages: [{ role: "system", content: prompt }], temperature: temp }) }); 
-        const data = await res.json(); 
-        if (data.choices?.length > 0) { 
-            let c = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim(); 
-            const parsed = JSON.parse(c); 
-            const sd = DB.getSpyData(); 
-            if (!sd[currentSpyContact.id]) sd[currentSpyContact.id] = {}; 
-            
-            if (type === 'chat') { 
-                sd[currentSpyContact.id].vk_contacts = parsed; 
-                DB.saveSpyData(sd); 
-                renderSpyVKContacts(); 
-            } else if (type === 'memo') { 
-                sd[currentSpyContact.id].memos = parsed; 
-                DB.saveSpyData(sd); 
-                renderSpyMemos(); 
-            } else if (type === 'browser') {
-                sd[currentSpyContact.id].browser_history = parsed;
+        const res = await fetch(`${s.url}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.key}` },
+            body: JSON.stringify({
+                model: s.model,
+                messages: [{ role: "user", content: prompt }],
+                temperature: temp
+            })
+        });
+        const rawText = await res.text();
+        let data = null;
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch {
+            data = null;
+        }
+
+        if (!res.ok) {
+            const errorMsg = data?.error?.message || data?.message || rawText || `HTTP ${res.status}`;
+            throw new Error(`请求失败（${res.status}）：${errorMsg}`);
+        }
+
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content || typeof content !== 'string') {
+            throw new Error('模型未返回有效内容，请重试');
+        }
+
+        let parsed;
+        try {
+            const cleaned = content.replace(/```json/g, '').replace(/```/g, '').trim();
+            parsed = JSON.parse(cleaned);
+        } catch {
+            throw new Error('模型返回内容不是有效JSON，请重试');
+        }
+
+        const sd = DB.getSpyData(); 
+        if (!sd[currentSpyContact.id]) sd[currentSpyContact.id] = {}; 
+        
+        if (type === 'chat') { 
+            sd[currentSpyContact.id].vk_contacts = parsed; 
+            DB.saveSpyData(sd); 
+            renderSpyVKContacts(); 
+        } else if (type === 'memo') { 
+            sd[currentSpyContact.id].memos = parsed; 
+            DB.saveSpyData(sd); 
+            renderSpyMemos(); 
+        } else if (type === 'browser') {
+            sd[currentSpyContact.id].browser_history = parsed;
+            DB.saveSpyData(sd);
+            renderSpyBrowser();
+        } else if (type === 'diary') {
+            if (!sd[currentSpyContact.id].diaries) sd[currentSpyContact.id].diaries = [];
+            if (parsed.content) {
+                sd[currentSpyContact.id].diaries.push({ id: Date.now(), content: parsed.content });
                 DB.saveSpyData(sd);
-                renderSpyBrowser();
-            } else if (type === 'diary') {
-                if (!sd[currentSpyContact.id].diaries) sd[currentSpyContact.id].diaries = [];
-                if (parsed.content) {
-                    sd[currentSpyContact.id].diaries.push({ id: Date.now(), content: parsed.content });
-                    DB.saveSpyData(sd);
-                    renderSpyDiaries();
-                }
+                renderSpyDiaries();
+            } else {
+                throw new Error('日记内容为空，请重试');
             }
-        } 
+        }
     } catch (e) { 
         alert("生成失败：" + e.message); 
     } 
@@ -4361,10 +4394,13 @@ function renderChatHistory(maintainScroll = false) {
                 stage.style.width = '100%';
                 stage.style.borderRadius = '18px';
                 stage.style.padding = '0';
-                stage.style.overflow = 'hidden';
+                stage.style.overflow = 'visible';
                 stage.style.boxShadow = '0 8px 24px rgba(50,45,95,0.16)';
                 stage.style.backdropFilter = 'blur(10px)';
-                stage.innerHTML = msg.content || '';
+                stage.style.boxSizing = 'border-box';
+                stage.style.wordBreak = 'break-word';
+                stage.style.overflowWrap = 'anywhere';
+                renderHtmlTheaterIntoStage(stage, msg.content || '');
                 bc.appendChild(stage);
             } else { 
                 const b = document.createElement('div'); 
@@ -5327,6 +5363,69 @@ function sanitizeTheaterHtml(rawHtml) {
     return html.trim();
 }
 
+function normalizeTheaterElementLayout(rootEl) {
+    if (!rootEl) return;
+    const nodes = [rootEl, ...rootEl.querySelectorAll('*')];
+    nodes.forEach(node => {
+        if (!(node instanceof HTMLElement)) return;
+        node.style.maxWidth = '100%';
+        node.style.boxSizing = 'border-box';
+        const widthPx = parseFloat(node.style.width);
+        if (node.style.width && node.style.width.trim().endsWith('px') && !Number.isNaN(widthPx) && widthPx > 280) {
+            node.style.width = '100%';
+        }
+        const minWidthPx = parseFloat(node.style.minWidth);
+        if (node.style.minWidth && node.style.minWidth.trim().endsWith('px') && !Number.isNaN(minWidthPx) && minWidthPx > 280) {
+            node.style.minWidth = '0';
+        }
+        const tag = node.tagName.toUpperCase();
+        if (tag === 'IMG' || tag === 'VIDEO' || tag === 'SVG' || tag === 'CANVAS' || tag === 'TABLE') {
+            node.style.maxWidth = '100%';
+            if (tag !== 'TABLE') node.style.height = 'auto';
+        }
+    });
+}
+
+function renderHtmlTheaterIntoStage(stageEl, rawHtml) {
+    if (!stageEl) return;
+    const safeHtml = sanitizeTheaterHtml(rawHtml);
+    if (!safeHtml) {
+        stageEl.innerHTML = '';
+        return;
+    }
+    stageEl.innerHTML = '';
+    if (typeof stageEl.attachShadow === 'function') {
+        const shadow = stageEl.attachShadow({ mode: 'open' });
+        const baseStyle = document.createElement('style');
+        baseStyle.textContent = `
+            :host { display: block; width: 100%; }
+            .html-theater-host {
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                line-height: 1.5;
+                color: #2f3152;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+            .html-theater-host * {
+                box-sizing: border-box;
+                max-width: 100%;
+            }
+        `;
+        const host = document.createElement('div');
+        host.className = 'html-theater-host';
+        host.innerHTML = safeHtml;
+        shadow.appendChild(baseStyle);
+        shadow.appendChild(host);
+        normalizeTheaterElementLayout(host);
+    } else {
+        stageEl.innerHTML = safeHtml;
+        normalizeTheaterElementLayout(stageEl);
+    }
+}
+
 function buildFallbackTheaterHtml(messageText, characterName) {
     const safeName = escapeHtml(characterName || '我');
     const safeMood = escapeHtml((messageText || '').replace(/\s+/g, ' ').slice(0, 42) || '心里像落下一片轻雪');
@@ -5420,6 +5519,7 @@ async function triggerAIResponse(options = {}) {
     const summaryInterval = Math.max(1, Number(userSettings.summaryInterval) || 50);
     const htmlTheaterEnabled = userSettings.enableHtmlTheater === true && !isCallActive && !isOfflineActive;
     const limitedHistory = history.slice(-contextLimit);
+    const historyOffset = history.length - limitedHistory.length;
 
     let pendingTransferIndex = -1, pendingTransferAmount = 0, pendingTransferNote = '';
     let pendingRedPacketIndex = -1, pendingRedPacketAmount = 0, pendingRedPacketNote = '';
@@ -5433,23 +5533,23 @@ async function triggerAIResponse(options = {}) {
     
     for (let i = limitedHistory.length - 1; i >= 0; i--) {
         if (limitedHistory[i].type === 'transfer' && limitedHistory[i].status === 'pending') {
-            pendingTransferIndex = i; pendingTransferAmount = limitedHistory[i].amount; pendingTransferNote = limitedHistory[i].note;
+            pendingTransferIndex = historyOffset + i; pendingTransferAmount = limitedHistory[i].amount; pendingTransferNote = limitedHistory[i].note;
         }
         if (limitedHistory[i].type === 'redpacket' && limitedHistory[i].status === 'pending') {
-            pendingRedPacketIndex = i; pendingRedPacketAmount = limitedHistory[i].amount; pendingRedPacketNote = limitedHistory[i].note;
+            pendingRedPacketIndex = historyOffset + i; pendingRedPacketAmount = limitedHistory[i].amount; pendingRedPacketNote = limitedHistory[i].note;
         }
         // 只有在未绑定情侣空间且最后一条消息是邀请时才处理
         if (!isAlreadyCoupled && i === limitedHistory.length - 1 && limitedHistory[i].type === 'couple_invite_req') {
-            pendingInviteIndex = i;
+            pendingInviteIndex = historyOffset + i;
         }
         if (i === limitedHistory.length - 1 && limitedHistory[i].type === 'pay_invite_req' && limitedHistory[i].status === 'pending') {
-            pendingPayInviteIndex = i;
+            pendingPayInviteIndex = historyOffset + i;
             pendingPayInviteAmount = Number(limitedHistory[i].amount) || 0;
             pendingPayInviteCurrency = limitedHistory[i].currencyUnit || 'cny';
             pendingPayInviteAmountText = limitedHistory[i].amountText || formatAmountByCurrency(pendingPayInviteAmount, pendingPayInviteCurrency);
         }
         if (i === limitedHistory.length - 1 && limitedHistory[i].type === 'gift_req' && limitedHistory[i].status === 'pending') {
-            pendingGiftIndex = i;
+            pendingGiftIndex = historyOffset + i;
             pendingGiftTitle = limitedHistory[i].title || '礼物';
             pendingGiftAmountText = limitedHistory[i].amountText || formatAmountByCurrency(limitedHistory[i].amount || 0, limitedHistory[i].currencyUnit || 'cny');
         }
