@@ -860,6 +860,222 @@ function normalizeMemoriesData(rawMems) {
     return { normalizedMems: normalized, changed };
 }
 
+function createPortableMemoryExportForCurrentContact() {
+    if (!currentMemoContact) return null;
+    const mems = DB.getMemories();
+    const bucket = normalizeContactMemoryBucket(mems[currentMemoContact.id]);
+    const records = [];
+
+    (bucket.longTermMemories || []).forEach((item) => {
+        const content = String(item?.content || '').trim();
+        if (!content) return;
+        records.push({
+            id: `legacy-long-${currentMemoContact.id}-${item.timestamp || Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+            content,
+            embedding: [],
+            room: 'long_term',
+            importance: 8,
+            last_accessed: Number(item.timestamp) || Date.now(),
+            retrieval_count: 0,
+            created_at: Number(item.timestamp) || Date.now(),
+            updated_at: Number(item.timestamp) || Date.now(),
+            source_contact: currentMemoContact.name || '',
+            source_contact_id: currentMemoContact.id || '',
+            impression_section: '',
+            schedule_at: null,
+            expires_at: null,
+            legacy: {
+                keywords: normalizeKeywords(item.keywords),
+                source: item.source || ''
+            }
+        });
+    });
+
+    (bucket.shortTermMemories || []).forEach((item) => {
+        const content = String(item?.content || '').trim();
+        if (!content) return;
+        const ts = Number(item.timestamp) || Date.now();
+        records.push({
+            id: `legacy-short-${currentMemoContact.id}-${ts}-${Math.random().toString(16).slice(2, 6)}`,
+            content,
+            embedding: [],
+            room: 'short_term',
+            importance: item.isDailySummary ? 7 : 5,
+            last_accessed: ts,
+            retrieval_count: 0,
+            created_at: ts,
+            updated_at: ts,
+            source_contact: currentMemoContact.name || '',
+            source_contact_id: currentMemoContact.id || '',
+            impression_section: '',
+            schedule_at: null,
+            expires_at: ts + SHORT_TERM_MEMORY_TTL_MS,
+            legacy: {
+                keywords: normalizeKeywords(item.keywords),
+                source: item.source || '',
+                isDailySummary: Boolean(item.isDailySummary)
+            }
+        });
+    });
+
+    USER_IMPRESSION_KEYS.forEach((section) => {
+        const content = String(bucket.userImpressions?.[section] || '').trim();
+        if (!content) return;
+        const nowTs = Date.now();
+        records.push({
+            id: `legacy-impression-${currentMemoContact.id}-${section}`,
+            content,
+            embedding: [],
+            room: 'impression',
+            importance: 8,
+            last_accessed: nowTs,
+            retrieval_count: 0,
+            created_at: nowTs,
+            updated_at: nowTs,
+            source_contact: currentMemoContact.name || '',
+            source_contact_id: currentMemoContact.id || '',
+            impression_section: section,
+            schedule_at: null,
+            expires_at: null
+        });
+    });
+
+    return {
+        version: 'memory-palace-v1',
+        exported_at: Date.now(),
+        profile_snapshot: {
+            partnerName: currentMemoContact.name || '',
+            partnerId: currentMemoContact.id || ''
+        },
+        memories: records
+    };
+}
+
+function triggerImportCurrentMemoMemories() {
+    if (!currentMemoContact) return alert('请先进入某个角色的记忆页');
+    document.getElementById('memo-memory-import-input')?.click();
+}
+
+function exportCurrentMemoMemories() {
+    if (!currentMemoContact) return alert('请先进入某个角色的记忆页');
+    const exportData = createPortableMemoryExportForCurrentContact();
+    if (!exportData) return alert('当前没有可导出的记忆');
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+    const a = document.createElement('a');
+    a.href = dataStr;
+    const safeName = String(currentMemoContact.name || 'memo').replace(/[\\/:*?"<>|]/g, '_');
+    a.download = `memo_memory_${safeName}_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+
+function mergePortableMemoriesIntoCurrentContact(records) {
+    if (!currentMemoContact) throw new Error('请先进入某个角色的记忆页');
+    const mems = DB.getMemories();
+    if (!mems[currentMemoContact.id]) mems[currentMemoContact.id] = createEmptyMemoBucket();
+    const bucket = mems[currentMemoContact.id];
+    if (!bucket.userImpressions) bucket.userImpressions = createDefaultUserImpressions();
+    let count = 0;
+
+    (Array.isArray(records) ? records : []).forEach((item) => {
+        if (!item || typeof item !== 'object') return;
+        const room = item.room;
+        const content = String(item.content || '').trim();
+        if (!content) return;
+        const ts = Number(item.created_at || item.updated_at || item.last_accessed || item.timestamp) || Date.now();
+
+        if (room === 'long_term') {
+            const normalized = normalizeMemoryItem({
+                content,
+                keywords: item.legacy?.keywords || item.keywords || [],
+                timestamp: ts
+            }, ts);
+            if (normalized) {
+                bucket.longTermMemories.push(normalized);
+                count += 1;
+            }
+            return;
+        }
+
+        if (room === 'short_term') {
+            const normalized = normalizeMemoryItem({
+                content,
+                keywords: item.legacy?.keywords || item.keywords || [],
+                source: item.legacy?.source || item.source || 'import',
+                isDailySummary: Boolean(item.legacy?.isDailySummary || item.isDailySummary),
+                timestamp: ts
+            }, ts);
+            if (normalized) {
+                bucket.shortTermMemories.push(normalized);
+                count += 1;
+            }
+            return;
+        }
+
+        if (room === 'impression') {
+            const section = USER_IMPRESSION_KEYS.includes(item.impression_section) ? item.impression_section : 'profile';
+            bucket.userImpressions[section] = content;
+            count += 1;
+        }
+    });
+
+    DB.saveMemories(mems);
+    return count;
+}
+
+function readJsonFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+        reader.readAsText(file, 'utf-8');
+    });
+}
+
+async function handleMemoMemoryImport(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    try {
+        const text = await readJsonFile(file);
+        const payload = JSON.parse(text);
+        let importedCount = 0;
+
+        if (Array.isArray(payload?.memories) && payload.version === 'memory-palace-v1') {
+            importedCount = mergePortableMemoriesIntoCurrentContact(payload.memories);
+        } else if (payload?.memories && typeof payload.memories === 'object' && !Array.isArray(payload.memories)) {
+            const normalized = normalizeContactMemoryBucket(payload.memories[currentMemoContact.id] || payload.memories);
+            const mems = DB.getMemories();
+            mems[currentMemoContact.id] = normalized;
+            DB.saveMemories(mems);
+            importedCount =
+                normalized.longTermMemories.length +
+                normalized.shortTermMemories.length +
+                USER_IMPRESSION_KEYS.filter(key => normalized.userImpressions?.[key]).length;
+        } else if (payload && typeof payload === 'object') {
+            const normalized = normalizeContactMemoryBucket(payload);
+            const mems = DB.getMemories();
+            mems[currentMemoContact.id] = normalized;
+            DB.saveMemories(mems);
+            importedCount =
+                normalized.longTermMemories.length +
+                normalized.shortTermMemories.length +
+                USER_IMPRESSION_KEYS.filter(key => normalized.userImpressions?.[key]).length;
+        } else {
+            throw new Error('不支持的记忆文件格式');
+        }
+
+        renderMemoDetailList();
+        closeMemoSettings();
+        alert(`已导入 ${importedCount} 条记忆/印象到当前角色`);
+    } catch (error) {
+        alert('导入记忆失败：' + error.message);
+    } finally {
+        const input = document.getElementById('memo-memory-import-input');
+        if (input) input.value = '';
+    }
+}
+
 function runMemoryMaintenance(memoriesMap) {
     let changed = false;
     const nowTs = Date.now();

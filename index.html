@@ -1325,6 +1325,12 @@
                     <button class="save-btn" style="background:#af52de; margin-bottom:10px;" onclick="editImpressionFromSettings()">+ 编辑用户印象</button>
                     <button class="save-btn" style="background:#007aff; margin-bottom:10px;" onclick="openShortToLongTransferModal()">选择短效记忆转为长效记忆</button>
                     <button class="save-btn" style="background:#5856d6; margin-bottom:20px;" onclick="summarizeUserImpressionsFromSettings()">一键总结用户印象</button>
+                    <div class="memo-import-export-row">
+                        <button class="save-btn memo-transfer-btn" style="background:#5ac8fa;" onclick="exportCurrentMemoMemories()">导出当前记忆</button>
+                        <button class="save-btn memo-transfer-btn" style="background:#30b0c7;" onclick="triggerImportCurrentMemoMemories()">导入到当前角色</button>
+                    </div>
+                    <div class="memo-import-export-tip">支持导入旧项目备份中的 memories，也支持导入新 AI 聊天器导出的记忆 JSON。</div>
+                    <input id="memo-memory-import-input" type="file" accept=".json,application/json" hidden onchange="handleMemoMemoryImport(event)">
                     
                     <div class="settings-section-title">每日总结设置</div>
                     
