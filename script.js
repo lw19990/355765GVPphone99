@@ -970,12 +970,10 @@ function exportCurrentMemoMemories() {
     a.remove();
 }
 
-function mergePortableMemoriesIntoCurrentContact(records) {
+function replaceCurrentContactMemoriesFromPortableRecords(records) {
     if (!currentMemoContact) throw new Error('请先进入某个角色的记忆页');
-    const mems = DB.getMemories();
-    if (!mems[currentMemoContact.id]) mems[currentMemoContact.id] = createEmptyMemoBucket();
-    const bucket = mems[currentMemoContact.id];
-    if (!bucket.userImpressions) bucket.userImpressions = createDefaultUserImpressions();
+    const bucket = createEmptyMemoBucket();
+    bucket.userImpressions = createDefaultUserImpressions();
     let count = 0;
 
     (Array.isArray(records) ? records : []).forEach((item) => {
@@ -1020,6 +1018,8 @@ function mergePortableMemoriesIntoCurrentContact(records) {
         }
     });
 
+    const mems = DB.getMemories();
+    mems[currentMemoContact.id] = bucket;
     DB.saveMemories(mems);
     return count;
 }
@@ -1042,7 +1042,7 @@ async function handleMemoMemoryImport(event) {
         let importedCount = 0;
 
         if (Array.isArray(payload?.memories) && payload.version === 'memory-palace-v1') {
-            importedCount = mergePortableMemoriesIntoCurrentContact(payload.memories);
+            importedCount = replaceCurrentContactMemoriesFromPortableRecords(payload.memories);
         } else if (payload?.memories && typeof payload.memories === 'object' && !Array.isArray(payload.memories)) {
             const normalized = normalizeContactMemoryBucket(payload.memories[currentMemoContact.id] || payload.memories);
             const mems = DB.getMemories();
@@ -1067,7 +1067,7 @@ async function handleMemoMemoryImport(event) {
 
         renderMemoDetailList();
         closeMemoSettings();
-        alert(`已导入 ${importedCount} 条记忆/印象到当前角色`);
+        alert(`已覆盖当前角色记忆，共导入 ${importedCount} 条记忆/印象`);
     } catch (error) {
         alert('导入记忆失败：' + error.message);
     } finally {
