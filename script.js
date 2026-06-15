@@ -884,6 +884,7 @@ function createPortableMemoryExportForCurrentContact() {
             impression_section: '',
             schedule_at: null,
             expires_at: null,
+            keywords: normalizeKeywords(item.keywords),
             legacy: {
                 keywords: normalizeKeywords(item.keywords),
                 source: item.source || ''
@@ -910,6 +911,7 @@ function createPortableMemoryExportForCurrentContact() {
             impression_section: '',
             schedule_at: null,
             expires_at: ts + SHORT_TERM_MEMORY_TTL_MS,
+            keywords: normalizeKeywords(item.keywords),
             legacy: {
                 keywords: normalizeKeywords(item.keywords),
                 source: item.source || '',
@@ -936,7 +938,8 @@ function createPortableMemoryExportForCurrentContact() {
             source_contact_id: currentMemoContact.id || '',
             impression_section: section,
             schedule_at: null,
-            expires_at: null
+            expires_at: null,
+            keywords: []
         });
     });
 
@@ -2001,7 +2004,60 @@ function toggleNotchVisibility() { const isChecked = document.getElementById('hi
 function applyNotchVisibility(hideNotch) { const notch = document.querySelector('.notch'); if (!notch) return; notch.style.display = hideNotch ? 'none' : ''; }
 function toggleStatusInfoVisibility() { const isChecked = document.getElementById('hide-status-info-toggle').checked; applyStatusInfoVisibility(isChecked); const s = DB.getSettings(); s.hideStatusInfo = isChecked; DB.saveSettings(s); }
 function applyStatusInfoVisibility(hideStatusInfo) { const clock = document.getElementById('clock-time'); const battery = document.getElementById('battery-level'); if (clock) clock.style.display = hideStatusInfo ? 'none' : ''; if (battery) battery.style.display = hideStatusInfo ? 'none' : ''; }
-async function fetchModels(btn) { const url = document.getElementById('api-url').value.replace(/\/$/, ''); const key = document.getElementById('api-key').value; if (!url || !key) return alert("请先填写 API Base URL 和 API Key"); const originalText = btn.innerText; btn.innerText = "加载中..."; btn.disabled = true; try { const res = await fetch(`${url}/models`, { method: 'GET', headers: { 'Authorization': `Bearer ${key}` } }); if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`); const data = await res.json(); const models = Array.isArray(data) ? data : (data.data || []); const select = document.getElementById('model-select'); select.innerHTML = '<option value="">-- 请选择模型 --</option>'; models.sort((a, b) => (a.id || a).localeCompare(b.id || b)); models.forEach(m => { const modelId = typeof m === 'string' ? m : m.id; const opt = document.createElement('option'); opt.value = modelId; opt.innerText = modelId; select.appendChild(opt); }); select.style.display = 'block'; btn.innerText = "拉取成功"; setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000); } catch (e) { alert("拉取失败: " + e.message); btn.innerText = originalText; btn.disabled = false; } }
+function normalizeApiBaseUrl(rawUrl) {
+    return String(rawUrl || '')
+        .trim()
+        .replace(/\/+$/, '')
+        .replace(/\/(chat\/completions|models)$/i, '');
+}
+
+function buildApiUrl(rawUrl, endpoint) {
+    const baseUrl = normalizeApiBaseUrl(rawUrl);
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    if (!baseUrl) return cleanEndpoint;
+    if (baseUrl.endsWith(cleanEndpoint)) return baseUrl;
+    return `${baseUrl}${cleanEndpoint}`;
+}
+
+function getChatCompletionsUrl(rawUrl) {
+    return buildApiUrl(rawUrl, '/chat/completions');
+}
+
+function getModelsUrl(rawUrl) {
+    return buildApiUrl(rawUrl, '/models');
+}
+
+async function fetchModels(btn) {
+    const url = normalizeApiBaseUrl(document.getElementById('api-url').value);
+    const key = document.getElementById('api-key').value;
+    if (!url || !key) return alert("请先填写 API Base URL 和 API Key");
+    const originalText = btn.innerText;
+    btn.innerText = "加载中...";
+    btn.disabled = true;
+    try {
+        const res = await fetch(getModelsUrl(url), { method: 'GET', headers: { 'Authorization': `Bearer ${key}` } });
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        const data = await res.json();
+        const models = Array.isArray(data) ? data : (data.data || []);
+        const select = document.getElementById('model-select');
+        select.innerHTML = '<option value="">-- 请选择模型 --</option>';
+        models.sort((a, b) => (a.id || a).localeCompare(b.id || b));
+        models.forEach(m => {
+            const modelId = typeof m === 'string' ? m : m.id;
+            const opt = document.createElement('option');
+            opt.value = modelId;
+            opt.innerText = modelId;
+            select.appendChild(opt);
+        });
+        select.style.display = 'block';
+        btn.innerText = "拉取成功";
+        setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000);
+    } catch (e) {
+        alert("拉取失败: " + e.message);
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
+}
 function selectModel(sel) { if (sel.value) document.getElementById('model-name').value = sel.value; }
 function exportBackup() { const backupData = { settings: DB.getSettings(), contacts: DB.getContacts(), chats: DB.getChats(), worldbook: DB.getWorldBook(), spyData: DB.getSpyData(), theme: DB.getTheme(), memories: DB.getMemories(), calendar: DB.getCalendarEvents(), coupleData: DB.getCoupleData(), stickers: DB.getStickers(), questionBoxData: DB.getQuestionBox(), musicData: DB.getMusicList(), forumData: DB.getForumData(), tomatoData: DB.getTomatoData(), gameData: DB.getGameData(), userAccounts: DB.getUserAccounts(), walletData: DB.getWalletData(), timestamp: Date.now() }; const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData)); const a = document.createElement('a'); a.href = dataStr; a.download = "iphone_sim_backup_" + new Date().toISOString().slice(0,10) + ".json"; document.body.appendChild(a); a.click(); a.remove(); }
 function importBackupDataToDB(data) {
@@ -3400,7 +3456,7 @@ ${memoryText || '（暂无）'}
 {"profile":"...","relationship":"...","notes":"..."}`;
 
     try {
-        const res = await fetch(`${settings.url}/chat/completions`, {
+        const res = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
             body: JSON.stringify({
@@ -3564,7 +3620,7 @@ ${memText || '（无记忆片段）'}
 - 只返回 JSON，不要输出任何额外说明`;
 
     try {
-        const res = await fetch(`${settings.url}/chat/completions`, {
+        const res = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
             body: JSON.stringify({ model: settings.model, messages: [{ role: "user", content: prompt }], temperature: 0.3 })
@@ -3948,7 +4004,7 @@ async function callSpyAPI(type) {
 
     try { 
         const temp = s.temperature !== undefined ? s.temperature : 0.7;
-        const res = await fetch(`${s.url}/chat/completions`, {
+        const res = await fetch(getChatCompletionsUrl(s.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.key}` },
             body: JSON.stringify({
@@ -4751,7 +4807,7 @@ async function requestAccountingReplyForRole(contact, payload, settings) {
     }
     systemContent += `\n\n[记账货币换算参考]\n用户记账默认货币是人民币。\n本次记账：${itemName} ${signedAmountText}（人民币¥）\n按照你的货币单位（${currencyCfg.label}）固定汇率折算，约为：${isIncome ? '+' : '-'}${convertedAmountText}\n请以折算后的金额感知消费水平，避免把正常金额误判为天价。`;
     systemContent += '\n\n你是陪我记账的角色。你只需要围绕这条记账消息简短回复，内容可关心、吐槽或提醒，禁止扩展到无关话题。回复100字以内，不要和其他角色互动。';
-    const response = await fetch(`${settings.url}/chat/completions`, {
+    const response = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -5759,7 +5815,7 @@ async function triggerBackgroundAutoReplyForContact(contact) {
     const timeoutId = setTimeout(() => controller.abort(), 55000);
     try {
         const temp = settings.temperature !== undefined ? settings.temperature : 0.7;
-        const response = await fetch(`${settings.url}/chat/completions`, {
+        const response = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
             body: JSON.stringify({ model: settings.model, messages: messages, temperature: temp }),
@@ -5971,7 +6027,7 @@ async function triggerCallStartResponse() {
 
     try {
         const temp = settings.temperature !== undefined ? settings.temperature : 0.7;
-        const response = await fetch(`${settings.url}/chat/completions`, {
+        const response = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
             body: JSON.stringify({ model: settings.model, messages: messages, temperature: temp })
@@ -6934,7 +6990,7 @@ async function triggerAIResponse(options = {}) {
         const controller = new AbortController();
         const fetchTimeout = setTimeout(() => controller.abort(), 150000); // 150秒后中断请求
         
-        const response = await fetch(`${settings.url}/chat/completions`, { 
+        const response = await fetch(getChatCompletionsUrl(settings.url), { 
             method: 'POST', 
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` }, 
             body: JSON.stringify({ model: settings.model, messages: messages, temperature: temp }),
@@ -7236,7 +7292,7 @@ ${msgsText}
 
 当前时间：${nowStr}`;
     try {
-        const res = await fetch(`${settings.url}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` }, body: JSON.stringify({ model: settings.model, messages: [{ role: "user", content: prompt }], temperature: 0.5 }) });
+        const res = await fetch(getChatCompletionsUrl(settings.url), { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` }, body: JSON.stringify({ model: settings.model, messages: [{ role: "user", content: prompt }], temperature: 0.5 }) });
         const data = await res.json();
         if (data.choices?.length > 0) {
             let raw = data.choices[0].message.content.trim().replace(/```json/g, '').replace(/```/g, '').trim();
@@ -7492,7 +7548,7 @@ ${userPersona ? `关于 ${userName}：${userPersona}` : ''}
 
     const temp = settings.temperature !== undefined ? settings.temperature : 0.7;
     
-    const res = await fetch(`${settings.url}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
@@ -8590,7 +8646,7 @@ ${chatHistory || '（暂无聊天记录）'}
 
     const temp = settings.temperature !== undefined ? settings.temperature : 0.8;
     
-    const res = await fetch(`${settings.url}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
@@ -9119,7 +9175,7 @@ async function callMessageBoardAPI(partner, type, userContent = '', contextConte
     }
     
     const temp = settings.temperature !== undefined ? settings.temperature : 0.8;
-    const res = await fetch(`${settings.url}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
         body: JSON.stringify({
@@ -9527,7 +9583,7 @@ ${post.content}${postTagsText}
 4. 直接返回评论文本，不要JSON，不要解释`;
         try {
             const temp = settings.temperature !== undefined ? settings.temperature : 0.8;
-            const res = await fetch(`${settings.url}/chat/completions`, {
+            const res = await fetch(getChatCompletionsUrl(settings.url), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
                 body: JSON.stringify({
@@ -10189,7 +10245,7 @@ ${worldBookContext}
 ]`;
 
             const temp = settings.temperature !== undefined ? settings.temperature : 0.8;
-            const res = await fetch(`${settings.url}/chat/completions`, {
+            const res = await fetch(getChatCompletionsUrl(settings.url), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
                 body: JSON.stringify({
@@ -10248,7 +10304,7 @@ ${worldBookContext}
 ]`;
         
         const temp = settings.temperature !== undefined ? settings.temperature : 0.9;
-        const res = await fetch(`${settings.url}/chat/completions`, {
+        const res = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.key}` },
             body: JSON.stringify({
@@ -11045,7 +11101,7 @@ async function callPhotoCommentAPI(partner, photo) {
 
     const temp = settings.temperature !== undefined ? settings.temperature : 0.8;
     
-    const res = await fetch(`${settings.url}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
@@ -11152,7 +11208,7 @@ ${chatHistory || '（暂无聊天记录）'}
 
     const temp = settings.temperature !== undefined ? settings.temperature : 0.8;
     
-    const res = await fetch(`${settings.url}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
@@ -11426,7 +11482,7 @@ async function generateTomatoPlan(goal) {
 }
 只返回JSON，不要Markdown，不要解释。`;
 
-    const res = await fetch(`${settings.url}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -11710,7 +11766,7 @@ async function requestTomatoCharacterMessage() {
 ${recent || '无'}`;
 
     try {
-        const res = await fetch(`${settings.url}/chat/completions`, {
+        const res = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -12802,7 +12858,7 @@ async function requestShoppingProducts(prompt) {
     if (!settings.url || !settings.key || !settings.model) {
         throw new Error('请先在设置中填写 API 地址、API Key 和模型名称');
     }
-    const res = await fetch(`${settings.url.replace(/\/$/, '')}/chat/completions`, {
+    const res = await fetch(getChatCompletionsUrl(settings.url), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -13517,7 +13573,7 @@ async function requestTarotAIReading() {
             '4) 不要输出 Markdown 标题，不要输出 JSON。'
         ].join('\n');
 
-        const response = await fetch(`${settings.url.replace(/\/$/, '')}/chat/completions`, {
+        const response = await fetch(getChatCompletionsUrl(settings.url), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
