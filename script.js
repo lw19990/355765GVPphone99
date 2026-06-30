@@ -154,6 +154,10 @@ const BACKGROUND_MESSAGE_CHECK_MS = 30000;
 const backgroundMessageLastRunMap = {};
 const backgroundMessageInFlight = new Set();
 let backgroundMessageTimer = null;
+const DEFAULT_LOCK_PASSCODE = '5168';
+let lockPasscodeInputValue = '';
+let lockPasscodeResetTimer = null;
+let hasResolvedInitialEntryScreen = false;
 const CHAT_CURRENCY_MAP = {
     cny: { code: 'cny', label: '人民币¥', symbol: '¥', cnyPerUnit: 1 },
     twd: { code: 'twd', label: '台币NT$', symbol: 'NT$', cnyPerUnit: 5 },
@@ -178,13 +182,102 @@ function updateTime() {
 setInterval(updateTime, 1000); updateTime();
 
 const screens = document.querySelectorAll('.screen');
-document.getElementById('unlock-slider').addEventListener('input', function() {
-    if (this.value > 90) {
-        document.getElementById('lock-screen').classList.remove('active');
-        document.getElementById('home-screen').classList.add('active');
-        this.value = 0;
-    } else setTimeout(() => { if(this.value < 90) this.value = 0; }, 300);
-});
+function normalizeLockPasscode(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    return /^\d{4}$/.test(digits) ? digits : DEFAULT_LOCK_PASSCODE;
+}
+function getCurrentLockPasscode() {
+    return normalizeLockPasscode(DB.getSettings().lockPasscode);
+}
+function isLockPasscodeDisabled(settings = DB.getSettings()) {
+    return settings.lockPasscodeDisabled === true;
+}
+function setActiveScreen(screenId) {
+    screens.forEach(s => s.classList.remove('active'));
+    const target = document.getElementById(screenId);
+    if (target) target.classList.add('active');
+}
+function resetLockPasscodeEntry(clearError = true) {
+    lockPasscodeInputValue = '';
+    if (lockPasscodeResetTimer) {
+        clearTimeout(lockPasscodeResetTimer);
+        lockPasscodeResetTimer = null;
+    }
+    if (clearError) {
+        const errorEl = document.getElementById('lock-passcode-error');
+        const dotsEl = document.getElementById('lock-passcode-dots');
+        if (errorEl) errorEl.classList.remove('show');
+        if (dotsEl) dotsEl.classList.remove('shake');
+    }
+    updateLockPasscodeDots();
+}
+function updateLockPasscodeDots() {
+    const dots = document.querySelectorAll('#lock-passcode-dots .lock-passcode-dot');
+    dots.forEach((dot, index) => {
+        dot.classList.toggle('filled', index < lockPasscodeInputValue.length);
+    });
+}
+function unlockToHomeScreen() {
+    resetLockPasscodeEntry();
+    setActiveScreen('home-screen');
+}
+function showLockScreen() {
+    resetLockPasscodeEntry();
+    setActiveScreen('lock-screen');
+}
+function resolveInitialEntryScreen() {
+    if (isLockPasscodeDisabled()) unlockToHomeScreen();
+    else showLockScreen();
+}
+function showLockPasscodeError() {
+    const errorEl = document.getElementById('lock-passcode-error');
+    const dotsEl = document.getElementById('lock-passcode-dots');
+    if (errorEl) errorEl.classList.add('show');
+    if (dotsEl) {
+        dotsEl.classList.remove('shake');
+        void dotsEl.offsetWidth;
+        dotsEl.classList.add('shake');
+    }
+    lockPasscodeResetTimer = setTimeout(() => resetLockPasscodeEntry(), 650);
+}
+function validateLockPasscodeEntry() {
+    if (lockPasscodeInputValue !== getCurrentLockPasscode()) {
+        showLockPasscodeError();
+        return;
+    }
+    unlockToHomeScreen();
+}
+function pressLockPasscodeDigit(digit) {
+    if (isLockPasscodeDisabled()) {
+        unlockToHomeScreen();
+        return;
+    }
+    if (!/^\d$/.test(String(digit)) || lockPasscodeInputValue.length >= 4) return;
+    const errorEl = document.getElementById('lock-passcode-error');
+    const dotsEl = document.getElementById('lock-passcode-dots');
+    if (errorEl) errorEl.classList.remove('show');
+    if (dotsEl) dotsEl.classList.remove('shake');
+    lockPasscodeInputValue += String(digit);
+    updateLockPasscodeDots();
+    if (lockPasscodeInputValue.length === 4) {
+        setTimeout(validateLockPasscodeEntry, 120);
+    }
+}
+function deleteLockPasscodeDigit() {
+    if (lockPasscodeInputValue.length === 0) return;
+    lockPasscodeInputValue = lockPasscodeInputValue.slice(0, -1);
+    updateLockPasscodeDots();
+}
+function handleLockPasscodeKeyboard(event) {
+    const lockScreen = document.getElementById('lock-screen');
+    if (!lockScreen || !lockScreen.classList.contains('active') || isLockPasscodeDisabled()) return;
+    if (/^\d$/.test(event.key)) {
+        pressLockPasscodeDigit(event.key);
+    } else if (event.key === 'Backspace' || event.key === 'Delete') {
+        deleteLockPasscodeDigit();
+    }
+}
+document.addEventListener('keydown', handleLockPasscodeKeyboard);
 
 // Temperature Slider Synchronization
 const tempSlider = document.getElementById('temperature-slider');
@@ -690,6 +783,7 @@ function closeAllOverlays() {
     document.getElementById('thoughts-modal').classList.remove('active');
     document.getElementById('offline-status-panel')?.classList.remove('active');
     document.getElementById('offline-settings-modal').classList.remove('active');
+    document.getElementById('offline-bagua-modal')?.classList.remove('active');
     document.getElementById('calendar-event-modal').classList.remove('active');
     document.getElementById('offline-edit-modal').classList.remove('active');
     document.getElementById('memo-transfer-modal')?.classList.remove('active');
@@ -1094,6 +1188,62 @@ function runMemoryMaintenance(memoriesMap) {
     return changed;
 }
 
+function createOfflineBuzzwordRule(data = {}) {
+    return {
+        id: data.id || `offline-bagua-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        source: String(data.source || data.word || '').trim(),
+        mode: data.mode === 'replace' ? 'replace' : 'block',
+        replacement: String(data.replacement || data.replaceWith || '').trim()
+    };
+}
+
+const DEFAULT_OFFLINE_BUZZWORD_RULES = Object.freeze([
+    Object.freeze({ source: '极其', mode: 'block', replacement: '' }),
+    Object.freeze({ source: '脊背', mode: 'replace', replacement: '后背' })
+]);
+
+function getDefaultOfflineBuzzwordRules() {
+    return DEFAULT_OFFLINE_BUZZWORD_RULES.map(rule => createOfflineBuzzwordRule(rule));
+}
+
+function normalizeOfflineBuzzwordRules(rules) {
+    if (!Array.isArray(rules)) return [];
+    return rules.map(rule => createOfflineBuzzwordRule(rule)).filter(rule => rule.source);
+}
+
+function getOfflineBuzzwordRules() {
+    const settings = DB.getSettings();
+    return normalizeOfflineBuzzwordRules(settings.offlineBuzzwordRules);
+}
+
+function applyOfflineBuzzwordRulesToText(text, rules = []) {
+    let output = String(text || '');
+    rules.forEach(rule => {
+        if (!rule.source) return;
+        const replacement = rule.mode === 'replace' ? rule.replacement : '';
+        output = output.split(rule.source).join(replacement);
+    });
+    return output
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function applyOfflineBuzzwordRulesToStatus(status, rules = []) {
+    return {
+        mood: applyOfflineBuzzwordRulesToText(status?.mood || '', rules),
+        outfit: applyOfflineBuzzwordRulesToText(status?.outfit || '', rules),
+        action: applyOfflineBuzzwordRulesToText(status?.action || '', rules),
+        inner: applyOfflineBuzzwordRulesToText(status?.inner || '', rules)
+    };
+}
+
+function hasOfflineStatusContent(status) {
+    return Boolean(status && (status.mood || status.outfit || status.action || status.inner));
+}
+
+let offlineBuzzwordRuleDrafts = [];
+
 const DB = {
     getSettings: () => {
         const saved = MEMORY_CACHE['iphone_settings'];
@@ -1107,7 +1257,10 @@ const DB = {
             hideStatusInfo: false,
             temperature: 0.7,
             keepAliveEnabled: false,
-            notificationPermissionGranted: false
+            notificationPermissionGranted: false,
+            offlineBuzzwordRules: getDefaultOfflineBuzzwordRules(),
+            lockPasscode: DEFAULT_LOCK_PASSCODE,
+            lockPasscodeDisabled: false
         };
         if (!saved) return defaultSettings;
         if (!saved.prompt || saved.prompt.length < 50) saved.prompt = DEFAULT_SYSTEM_PROMPT;
@@ -1117,6 +1270,10 @@ const DB = {
         if (saved.temperature === undefined) saved.temperature = 0.7;
         if (saved.keepAliveEnabled === undefined) saved.keepAliveEnabled = false;
         if (saved.notificationPermissionGranted === undefined) saved.notificationPermissionGranted = false;
+        if (saved.offlineBuzzwordRules === undefined) saved.offlineBuzzwordRules = getDefaultOfflineBuzzwordRules();
+        else saved.offlineBuzzwordRules = normalizeOfflineBuzzwordRules(saved.offlineBuzzwordRules);
+        saved.lockPasscode = normalizeLockPasscode(saved.lockPasscode);
+        if (saved.lockPasscodeDisabled === undefined) saved.lockPasscodeDisabled = false;
         return saved;
     },
     saveSettings: (data) => {
@@ -1854,6 +2011,10 @@ function loadSettings() {
     document.getElementById('hide-notch-toggle').checked = s.hideNotch === true;
     document.getElementById('hide-status-info-toggle').checked = s.hideStatusInfo === true;
     document.getElementById('keep-alive-toggle').checked = s.keepAliveEnabled === true;
+    const disableLockToggle = document.getElementById('disable-lock-passcode-toggle');
+    const lockPasscodeInput = document.getElementById('lock-passcode-input');
+    if (disableLockToggle) disableLockToggle.checked = s.lockPasscodeDisabled === true;
+    if (lockPasscodeInput) lockPasscodeInput.value = s.lockPasscode || DEFAULT_LOCK_PASSCODE;
     const temp = s.temperature || 0.7;
     document.getElementById('temperature-slider').value = Math.round(temp * 100);
     document.getElementById('temperature-input').value = temp;
@@ -1865,12 +2026,17 @@ function loadSettings() {
     syncBackgroundRuntimeByVisibility();
     applyTheme();
     applyPage2Images();
+    if (!hasResolvedInitialEntryScreen) {
+        resolveInitialEntryScreen();
+        hasResolvedInitialEntryScreen = true;
+    }
 }
 
 function saveSettings() {
     const temperature = parseFloat(document.getElementById('temperature-input').value) || 0.7;
     const current = DB.getSettings();
     DB.saveSettings({
+        ...current,
         url: document.getElementById('api-url').value,
         key: document.getElementById('api-key').value,
         model: document.getElementById('model-name').value,
@@ -1880,7 +2046,9 @@ function saveSettings() {
         hideStatusInfo: document.getElementById('hide-status-info-toggle').checked,
         temperature: temperature,
         keepAliveEnabled: document.getElementById('keep-alive-toggle').checked,
-        notificationPermissionGranted: current.notificationPermissionGranted === true || (typeof Notification !== 'undefined' && Notification.permission === 'granted')
+        notificationPermissionGranted: current.notificationPermissionGranted === true || (typeof Notification !== 'undefined' && Notification.permission === 'granted'),
+        lockPasscode: normalizeLockPasscode(current.lockPasscode),
+        lockPasscodeDisabled: current.lockPasscodeDisabled === true
     });
     updateNotificationPermissionStatusUI();
     applyKeepAliveAudioState();
@@ -2296,9 +2464,34 @@ function startWidgetSlideshowIfNeeded() {
         setWidgetSlideByIndex(widgetSlideIndex + 1, true);
     }, 5000);
 }
-function renderThemeSettings() { const theme = DB.getTheme(); currentThemeType = theme.wallpaperType; switchThemeType(currentThemeType); if (theme.wallpaperType === 'color') document.getElementById('theme-wallpaper-color').value = theme.wallpaperValue; document.getElementById('theme-case-color').value = theme.caseColor; document.getElementById('theme-font-url').value = theme.customFontUrl || ''; document.getElementById('theme-font-color').value = theme.fontColor || '#000000'; }
+function renderThemeSettings() { const theme = DB.getTheme(); const settings = DB.getSettings(); currentThemeType = theme.wallpaperType; switchThemeType(currentThemeType); if (theme.wallpaperType === 'color') document.getElementById('theme-wallpaper-color').value = theme.wallpaperValue; document.getElementById('theme-case-color').value = theme.caseColor; document.getElementById('theme-font-url').value = theme.customFontUrl || ''; document.getElementById('theme-font-color').value = theme.fontColor || '#000000'; document.getElementById('disable-lock-passcode-toggle').checked = settings.lockPasscodeDisabled === true; document.getElementById('lock-passcode-input').value = settings.lockPasscode || DEFAULT_LOCK_PASSCODE; }
 function switchThemeType(type) { currentThemeType = type; document.getElementById('theme-type-color').classList.toggle('active', type === 'color'); document.getElementById('theme-type-image').classList.toggle('active', type === 'image'); document.getElementById('theme-input-color').style.display = type === 'color' ? 'block' : 'none'; document.getElementById('theme-input-image').style.display = type === 'image' ? 'block' : 'none'; }
 function saveTheme() { const caseColor = document.getElementById('theme-case-color').value; const currentTheme = DB.getTheme(); const processSave = (val) => { currentTheme.wallpaperType = currentThemeType; currentTheme.wallpaperValue = val; currentTheme.caseColor = caseColor; DB.saveTheme(currentTheme); applyTheme(); alert('主题已应用'); }; if (currentThemeType === 'color') { processSave(document.getElementById('theme-wallpaper-color').value); } else { const urlInput = document.getElementById('theme-wallpaper-url').value; const fileInput = document.getElementById('theme-wallpaper-image'); if (urlInput) processSave(urlInput); else if (fileInput.files && fileInput.files[0]) { const r = new FileReader(); r.onload = (e) => processSave(e.target.result); r.readAsDataURL(fileInput.files[0]); } else { if (currentTheme.wallpaperType === 'image') processSave(currentTheme.wallpaperValue); else alert('请选择图片'); } } }
+function toggleLockPasscodeDisabled() {
+    const settings = DB.getSettings();
+    settings.lockPasscodeDisabled = document.getElementById('disable-lock-passcode-toggle').checked === true;
+    DB.saveSettings(settings);
+    if (settings.lockPasscodeDisabled) {
+        alert('已关闭开屏密码，重新进入网页时将直接进入主页');
+    } else {
+        alert('已开启开屏密码，重新进入网页时需要输入密码');
+    }
+}
+function saveLockPasscode() {
+    const input = document.getElementById('lock-passcode-input');
+    const passcode = String(input?.value || '').replace(/\D/g, '');
+    if (!/^\d{4}$/.test(passcode)) {
+        alert('开屏密码必须是4位数字');
+        if (input) input.focus();
+        return;
+    }
+    const settings = DB.getSettings();
+    settings.lockPasscode = passcode;
+    DB.saveSettings(settings);
+    if (input) input.value = passcode;
+    resetLockPasscodeEntry();
+    alert('开屏密码已更新');
+}
 function captureDesktopIconDefaults() {
     getDesktopIconIds().forEach((id) => {
         const el = document.getElementById(id);
@@ -2963,8 +3156,18 @@ function renderUserAccounts() {
     accounts.forEach(account => {
         const item = document.createElement('div');
         item.className = 'user-account-list-item';
-        item.textContent = account.name || '我';
         item.onclick = () => openUserAccountEditor(account.id);
+        const name = document.createElement('span');
+        name.className = 'user-account-list-name';
+        name.textContent = account.name || '我';
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'user-account-delete-btn';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.setAttribute('aria-label', '删除账号');
+        deleteBtn.onclick = event => deleteUserAccount(account.id, event);
+        item.appendChild(name);
+        item.appendChild(deleteBtn);
         list.appendChild(item);
     });
     const addItem = document.createElement('div');
@@ -3039,6 +3242,43 @@ function saveUserAccount() {
         r.readAsDataURL(fileInput.files[0]);
     } else {
         processSave(null);
+    }
+}
+
+function deleteUserAccount(accountId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    if (!confirm('确定要删除这个用户人设账号吗？')) return;
+
+    const accounts = DB.getUserAccounts();
+    const nextAccounts = accounts.filter(account => account.id !== accountId);
+    if (nextAccounts.length === accounts.length) return;
+
+    DB.saveUserAccounts(nextAccounts);
+
+    const forumData = DB.getForumData();
+    let forumChanged = false;
+    if (forumData.accountData && Object.prototype.hasOwnProperty.call(forumData.accountData, accountId)) {
+        delete forumData.accountData[accountId];
+        forumChanged = true;
+    }
+    if (forumData.mainAccountId === accountId) {
+        forumData.mainAccountId = nextAccounts[0]?.id || '';
+        if (forumData.mainAccountId) getForumAccountBucket(forumData, forumData.mainAccountId, true);
+        currentForumAccountId = forumData.mainAccountId || '';
+        forumChanged = true;
+    } else if (currentForumAccountId === accountId) {
+        currentForumAccountId = forumData.mainAccountId || nextAccounts[0]?.id || '';
+    }
+    if (forumChanged) DB.saveForumData(forumData);
+
+    syncContactsWithUserAccounts();
+    renderContactsPanel();
+    if (currentChatContact) {
+        updateChatUserAccountOptions(currentChatContact.userAccountId);
+        renderChatHistory();
     }
 }
 
@@ -6514,6 +6754,7 @@ function exitOfflineMode() {
     document.getElementById('offline-typing-indicator').style.display = 'none';
     toggleOfflineStatusBar(false);
     closeOfflineSettings();
+    closeOfflineBuzzwordTool();
     if (offlineRainRenderer) offlineRainRenderer.stop();
 }
 
@@ -6548,6 +6789,169 @@ function setOfflineInterrupt(value) {
     document.getElementById('offline-interrupt-no').classList.toggle('active', value !== true);
 }
 function closeOfflineSettings() { document.getElementById('offline-settings-modal').classList.remove('active'); document.getElementById('ctx-overlay').classList.remove('active'); }
+function renderOfflineBuzzwordRuleList() {
+    const list = document.getElementById('offline-bagua-list');
+    const empty = document.getElementById('offline-bagua-empty');
+    if (!list || !empty) return;
+    list.innerHTML = '';
+    offlineBuzzwordRuleDrafts.forEach((rule, index) => {
+        const row = document.createElement('div');
+        row.className = 'offline-bagua-row';
+
+        const sourceInput = document.createElement('input');
+        sourceInput.type = 'text';
+        sourceInput.placeholder = '输入要处理的词';
+        sourceInput.value = rule.source || '';
+        sourceInput.oninput = (event) => {
+            offlineBuzzwordRuleDrafts[index].source = event.target.value;
+        };
+
+        const modeSelect = document.createElement('select');
+        const blockOption = document.createElement('option');
+        blockOption.value = 'block';
+        blockOption.textContent = '屏蔽';
+        const replaceOption = document.createElement('option');
+        replaceOption.value = 'replace';
+        replaceOption.textContent = '替换';
+        modeSelect.appendChild(blockOption);
+        modeSelect.appendChild(replaceOption);
+        modeSelect.value = rule.mode === 'replace' ? 'replace' : 'block';
+
+        const replacementInput = document.createElement('input');
+        replacementInput.type = 'text';
+        replacementInput.placeholder = modeSelect.value === 'replace' ? '输入替换词' : '屏蔽模式留空';
+        replacementInput.value = rule.replacement || '';
+        replacementInput.disabled = modeSelect.value !== 'replace';
+        replacementInput.oninput = (event) => {
+            offlineBuzzwordRuleDrafts[index].replacement = event.target.value;
+        };
+
+        modeSelect.onchange = (event) => {
+            const mode = event.target.value === 'replace' ? 'replace' : 'block';
+            offlineBuzzwordRuleDrafts[index].mode = mode;
+            if (mode === 'block') offlineBuzzwordRuleDrafts[index].replacement = '';
+            replacementInput.disabled = mode !== 'replace';
+            replacementInput.placeholder = mode === 'replace' ? '输入替换词' : '屏蔽模式留空';
+            replacementInput.value = offlineBuzzwordRuleDrafts[index].replacement || '';
+        };
+
+        row.appendChild(sourceInput);
+        row.appendChild(modeSelect);
+        row.appendChild(replacementInput);
+        list.appendChild(row);
+    });
+    empty.classList.toggle('active', offlineBuzzwordRuleDrafts.length === 0);
+}
+
+function normalizeOfflineBuzzwordRuleDraftsForSave(rules) {
+    const normalized = [];
+    for (let i = 0; i < rules.length; i++) {
+        const rule = createOfflineBuzzwordRule(rules[i]);
+        const isCompletelyEmpty = !rule.source && !rule.replacement;
+        if (isCompletelyEmpty) continue;
+        if (!rule.source) {
+            alert(`第 ${i + 1} 行未填写需要处理的词汇`);
+            return null;
+        }
+        if (rule.mode === 'replace' && !rule.replacement) {
+            alert(`第 ${i + 1} 行选择了“替换”，必须填写替换词`);
+            return null;
+        }
+        if (rule.mode === 'block') rule.replacement = '';
+        normalized.push(rule);
+    }
+    return normalized;
+}
+
+function openOfflineBuzzwordTool() {
+    offlineBuzzwordRuleDrafts = getOfflineBuzzwordRules().map(rule => createOfflineBuzzwordRule(rule));
+    renderOfflineBuzzwordRuleList();
+    document.getElementById('offline-bagua-modal')?.classList.add('active');
+}
+
+function closeOfflineBuzzwordTool() {
+    document.getElementById('offline-bagua-modal')?.classList.remove('active');
+    const input = document.getElementById('offline-bagua-import-input');
+    if (input) input.value = '';
+}
+
+function addOfflineBuzzwordRule() {
+    offlineBuzzwordRuleDrafts.push(createOfflineBuzzwordRule());
+    renderOfflineBuzzwordRuleList();
+}
+
+function removeOfflineBuzzwordRule() {
+    if (offlineBuzzwordRuleDrafts.length === 0) return;
+    offlineBuzzwordRuleDrafts.pop();
+    renderOfflineBuzzwordRuleList();
+}
+
+function saveOfflineBuzzwordRules() {
+    const normalized = normalizeOfflineBuzzwordRuleDraftsForSave(offlineBuzzwordRuleDrafts);
+    if (!normalized) return;
+    const settings = DB.getSettings();
+    settings.offlineBuzzwordRules = normalized;
+    DB.saveSettings(settings);
+    offlineBuzzwordRuleDrafts = normalized.map(rule => createOfflineBuzzwordRule(rule));
+    renderOfflineBuzzwordRuleList();
+    alert('去八股规则已保存');
+}
+
+function exportOfflineBuzzwordRules() {
+    const normalized = normalizeOfflineBuzzwordRuleDraftsForSave(offlineBuzzwordRuleDrafts);
+    if (!normalized) return;
+    const payload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        rules: normalized.map(rule => ({
+            source: rule.source,
+            mode: rule.mode,
+            replacement: rule.replacement || ''
+        }))
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `offline_bagua_rules_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+function triggerOfflineBuzzwordImport() {
+    const input = document.getElementById('offline-bagua-import-input');
+    if (!input) return;
+    input.value = '';
+    input.click();
+}
+
+function importOfflineBuzzwordRules(event) {
+    const file = event.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+        try {
+            const raw = JSON.parse(String(loadEvent.target?.result || '{}'));
+            const importedRules = Array.isArray(raw) ? raw : raw.rules;
+            if (!Array.isArray(importedRules)) throw new Error('JSON 中未找到 rules 数组');
+            const normalized = normalizeOfflineBuzzwordRuleDraftsForSave(importedRules);
+            if (!normalized) return;
+            const settings = DB.getSettings();
+            settings.offlineBuzzwordRules = normalized;
+            DB.saveSettings(settings);
+            offlineBuzzwordRuleDrafts = normalized.map(rule => createOfflineBuzzwordRule(rule));
+            renderOfflineBuzzwordRuleList();
+            alert(`导入成功，已覆盖为 ${normalized.length} 条规则`);
+        } catch (error) {
+            alert(`导入失败：${error.message}`);
+        } finally {
+            event.target.value = '';
+        }
+    };
+    reader.readAsText(file, 'utf-8');
+}
 function saveOfflineSettings() { 
     const min = parseInt(document.getElementById('offline-min-len').value) || 500; 
     const max = parseInt(document.getElementById('offline-max-len').value) || 700; 
@@ -7028,8 +7432,9 @@ async function triggerAIResponse(options = {}) {
             let offlineStatus = null;
             if (isOfflineActive) {
                 const offlineParsed = parseOfflineReplyPayload(content);
-                content = offlineParsed.body;
-                offlineStatus = offlineParsed.status;
+                const offlineRules = getOfflineBuzzwordRules();
+                content = applyOfflineBuzzwordRulesToText(offlineParsed.body, offlineRules);
+                offlineStatus = applyOfflineBuzzwordRulesToStatus(offlineParsed.status, offlineRules);
                 extractedThought = null;
             }
 
